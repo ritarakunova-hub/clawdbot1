@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-"start": "bash install.sh && clawdbot telegram --token $TELEGRAM_TOKEN --verbose"
+    "start": "npm install -g @clawdbot/cli && clawdbot telegram --token $TELEGRAM_TOKEN --verbose"
   },
   "dependencies": {}
 }
