@@ -1,0 +1,113 @@
+{
+  "name": "TAINA CRM — Напоминание о заявках без ответа",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 10,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "schedule-node",
+      "name": "Каждый день в 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://script.google.com/macros/s/YOUR_APPS_SCRIPT_ID/exec",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "action", "value": "getUnanswered" },
+            { "name": "token", "value": "YOUR_SHARED_TOKEN" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-unanswered-node",
+      "name": "Получить заявки без ответа",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-node",
+      "name": "Есть заявки без ответа?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst lines = data.items.map(it => `• Строка ${it.row}: ${it.summary}`).join('\\n');\nreturn [{ json: { text: `⏰ Заявки без ответа (${data.count}):\\n\\n${lines}` } }];"
+      },
+      "id": "format-node",
+      "name": "Собрать текст напоминания",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-reminder-node",
+      "name": "Отправить напоминание",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 220],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Каждый день в 10:00": {
+      "main": [[{ "node": "Получить заявки без ответа", "type": "main", "index": 0 }]]
+    },
+    "Получить заявки без ответа": {
+      "main": [[{ "node": "Есть заявки без ответа?", "type": "main", "index": 0 }]]
+    },
+    "Есть заявки без ответа?": {
+      "main": [
+        [{ "node": "Собрать текст напоминания", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Собрать текст напоминания": {
+      "main": [[{ "node": "Отправить напоминание", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
