@@ -1,17 +1,12 @@
 {
-  "name": "TAINA CRM — Напоминание о заявках без ответа",
+  "name": "TAINA — Напоминание о заявках без ответа",
   "active": false,
   "nodes": [
     {
       "parameters": {
         "rule": {
           "interval": [
-            {
-              "field": "days",
-              "daysInterval": 1,
-              "triggerAtHour": 10,
-              "triggerAtMinute": 0
-            }
+            { "field": "days", "daysInterval": 1, "triggerAtHour": 10, "triggerAtMinute": 0 }
           ]
         }
       },
@@ -19,26 +14,28 @@
       "name": "Каждый день в 10:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 300]
+      "position": [220, 300]
     },
     {
       "parameters": {
         "method": "GET",
-        "url": "https://script.google.com/macros/s/YOUR_APPS_SCRIPT_ID/exec",
+        "url": "YOUR_APPS_SCRIPT_URL",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "action", "value": "getUnanswered" },
-            { "name": "token", "value": "YOUR_SHARED_TOKEN" }
+            { "name": "action", "value": "overdue" },
+            { "name": "token", "value": "YOUR_WEBHOOK_TOKEN" }
           ]
         },
-        "options": {}
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+        }
       },
-      "id": "get-unanswered-node",
-      "name": "Получить заявки без ответа",
+      "id": "overdue-node",
+      "name": "Получить просроченные заявки",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [460, 300]
+      "position": [440, 300]
     },
     {
       "parameters": {
@@ -56,20 +53,20 @@
         "options": {}
       },
       "id": "if-node",
-      "name": "Есть заявки без ответа?",
+      "name": "Есть просроченные?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [680, 300]
+      "position": [660, 300]
     },
     {
       "parameters": {
-        "jsCode": "const data = $input.first().json;\nconst lines = data.items.map(it => `• Строка ${it.row}: ${it.summary}`).join('\\n');\nreturn [{ json: { text: `⏰ Заявки без ответа (${data.count}):\\n\\n${lines}` } }];"
+        "jsCode": "const data = $input.first().json;\nconst lines = data.items.map(it => `• [ID ${it.id}] ${it.company || '—'} — статус: ${it.status}, действие: ${it.nextAction} (срок был ${it.nextActionDate})`).join('\\n');\nreturn [{ json: { text: `⏰ Заявки без ответа: ${data.count}\\n\\n${lines}` } }];"
       },
       "id": "format-node",
       "name": "Собрать текст напоминания",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 220]
+      "position": [880, 220]
     },
     {
       "parameters": {
@@ -81,23 +78,20 @@
       "name": "Отправить напоминание",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1120, 220],
+      "position": [1100, 220],
       "credentials": {
-        "telegramApi": {
-          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
-          "name": "Telegram account"
-        }
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
       }
     }
   ],
   "connections": {
     "Каждый день в 10:00": {
-      "main": [[{ "node": "Получить заявки без ответа", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Получить просроченные заявки", "type": "main", "index": 0 }]]
     },
-    "Получить заявки без ответа": {
-      "main": [[{ "node": "Есть заявки без ответа?", "type": "main", "index": 0 }]]
+    "Получить просроченные заявки": {
+      "main": [[{ "node": "Есть просроченные?", "type": "main", "index": 0 }]]
     },
-    "Есть заявки без ответа?": {
+    "Есть просроченные?": {
       "main": [
         [{ "node": "Собрать текст напоминания", "type": "main", "index": 0 }],
         []
@@ -108,6 +102,7 @@
     }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow"
   }
 }

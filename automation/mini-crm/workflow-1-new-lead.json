@@ -1,0 +1,97 @@
+{
+  "name": "TAINA — Новая заявка с сайта",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "YOUR_RANDOM_WEBHOOK_PATH",
+        "responseMode": "onReceived",
+        "responseData": "{\"ok\":true}",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook (от Netlify)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "webhookId": "taina-new-lead"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Netlify может прислать поля формы либо прямо в body, либо вложенными в body.data.\nconst body = $input.first().json.body || $input.first().json;\nconst data = body.data || body;\n\nfunction pick(...keys) {\n  for (const k of keys) {\n    const v = data[k];\n    if (v !== undefined && v !== null && String(v).trim() !== '') {\n      return String(v).trim();\n    }\n  }\n  return '';\n}\n\nconst name = pick('name', 'имя', 'full_name', 'fullname') || '—';\nconst company = pick('company', 'компания', 'organization') || '—';\nconst email = pick('email', 'почта');\nconst phone = pick('phone', 'телефон', 'tel');\nconst message = pick('message', 'сообщение', 'comment', 'текст');\n\nconst channelParts = [];\nif (email) channelParts.push('Email: ' + email);\nif (phone) channelParts.push('Тел.: ' + phone);\nconst channel = channelParts.length ? channelParts.join(', ') : '—';\n\nreturn [{\n  json: {\n    token: 'YOUR_WEBHOOK_TOKEN',\n    source: 'netlify',\n    name,\n    company,\n    channel,\n    message: message.slice(0, 300)\n  }\n}];"
+      },
+      "id": "normalize-node",
+      "name": "Привести поля к простому виду",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_APPS_SCRIPT_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+        }
+      },
+      "id": "sheet-node",
+      "name": "Записать в Google Таблицу",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🆕 Новая заявка с сайта TAINA Studio\n\nИмя: {{ $('Привести поля к простому виду').item.json.name }}\nКомпания: {{ $('Привести поля к простому виду').item.json.company }}\nСвязь: {{ $('Привести поля к простому виду').item.json.channel }}\nСообщение: {{ $('Привести поля к простому виду').item.json.message }}\n\nТаблица: YOUR_SHEET_URL",
+        "additionalFields": {}
+      },
+      "id": "telegram-ok-node",
+      "name": "Уведомление: заявка записана",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 200],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ НЕ ЗАПИСАНО В ТАБЛИЦУ (проверьте Apps Script URL/токен)\n\nИмя: {{ $('Привести поля к простому виду').item.json.name }}\nКомпания: {{ $('Привести поля к простому виду').item.json.company }}\nСвязь: {{ $('Привести поля к простому виду').item.json.channel }}\nСообщение: {{ $('Привести поля к простому виду').item.json.message }}\n\nОшибка: {{ $json.error?.message || $json.error || 'см. Executions в n8n' }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-error-node",
+      "name": "Уведомление: ошибка записи",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 420],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook (от Netlify)": {
+      "main": [[{ "node": "Привести поля к простому виду", "type": "main", "index": 0 }]]
+    },
+    "Привести поля к простому виду": {
+      "main": [[{ "node": "Записать в Google Таблицу", "type": "main", "index": 0 }]]
+    },
+    "Записать в Google Таблицу": {
+      "main": [
+        [{ "node": "Уведомление: заявка записана", "type": "main", "index": 0 }],
+        [{ "node": "Уведомление: ошибка записи", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
