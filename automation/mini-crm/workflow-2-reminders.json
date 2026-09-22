@@ -1,0 +1,108 @@
+{
+  "name": "TAINA — Напоминание о заявках без ответа",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "days", "daysInterval": 1, "triggerAtHour": 10, "triggerAtMinute": 0 }
+          ]
+        }
+      },
+      "id": "schedule-node",
+      "name": "Каждый день в 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "YOUR_APPS_SCRIPT_URL",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "action", "value": "overdue" },
+            { "name": "token", "value": "YOUR_WEBHOOK_TOKEN" }
+          ]
+        },
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+        }
+      },
+      "id": "overdue-node",
+      "name": "Получить просроченные заявки",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-node",
+      "name": "Есть просроченные?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst lines = data.items.map(it => `• [ID ${it.id}] ${it.company || '—'} — статус: ${it.status}, действие: ${it.nextAction} (срок был ${it.nextActionDate})`).join('\\n');\nreturn [{ json: { text: `⏰ Заявки без ответа: ${data.count}\\n\\n${lines}` } }];"
+      },
+      "id": "format-node",
+      "name": "Собрать текст напоминания",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 220]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $json.text }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-reminder-node",
+      "name": "Отправить напоминание",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1100, 220],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    }
+  ],
+  "connections": {
+    "Каждый день в 10:00": {
+      "main": [[{ "node": "Получить просроченные заявки", "type": "main", "index": 0 }]]
+    },
+    "Получить просроченные заявки": {
+      "main": [[{ "node": "Есть просроченные?", "type": "main", "index": 0 }]]
+    },
+    "Есть просроченные?": {
+      "main": [
+        [{ "node": "Собрать текст напоминания", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Собрать текст напоминания": {
+      "main": [[{ "node": "Отправить напоминание", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow"
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "name": "TAINA Sales Engine — Обработка Одобрить/Отклонить",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": { "updates": ["callback_query"] },
+      "id": "telegram-trigger-node",
+      "name": "Нажатие кнопки в Telegram",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 300],
+      "webhookId": "taina-approval",
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst cq = body.callback_query || (body.body && body.body.callback_query);\nif (!cq) {\n  throw new Error('Событие без callback_query — это не нажатие inline-кнопки');\n}\nconst data = cq.data || '';\nconst [action, id] = data.split(':');\nconst approved = action === 'approve';\n\nreturn [{\n  json: {\n    id,\n    status: approved ? 'Одобрено' : 'Отклонено',\n    mark: approved ? '✅ Одобрено' : '❌ Отклонено',\n    chatId: cq.message.chat.id,\n    messageId: cq.message.message_id,\n    originalText: cq.message.text || ''\n  }\n}];"
+      },
+      "id": "parse-callback-node",
+      "name": "Разобрать нажатие",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "YOUR_APPS_SCRIPT_URL",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "action", "value": "updateStatus" },
+            { "name": "id", "value": "={{ $json.id }}" },
+            { "name": "status", "value": "={{ $json.status }}" },
+            { "name": "token", "value": "YOUR_WEBHOOK_TOKEN" }
+          ]
+        },
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+        }
+      },
+      "id": "update-status-node",
+      "name": "Обновить статус в таблице",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Разобрать нажатие').item.json.chatId }}",
+        "text": "=⚠️ Не удалось обновить статус для ID {{ $('Разобрать нажатие').item.json.id }} в таблице. Проверьте вручную.",
+        "additionalFields": {}
+      },
+      "id": "telegram-error-node",
+      "name": "Ошибка обновления статуса",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [880, 460],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Разобрать нажатие').item.json.chatId }}",
+        "messageId": "={{ $('Разобрать нажатие').item.json.messageId }}",
+        "text": "={{ $('Разобрать нажатие').item.json.originalText + '\\n\\n' + $('Разобрать нажатие').item.json.mark }}",
+        "replyMarkup": "none",
+        "additionalFields": {}
+      },
+      "id": "telegram-edit-node",
+      "name": "Обновить карточку в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [880, 220],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    }
+  ],
+  "connections": {
+    "Нажатие кнопки в Telegram": {
+      "main": [[{ "node": "Разобрать нажатие", "type": "main", "index": 0 }]]
+    },
+    "Разобрать нажатие": {
+      "main": [[{ "node": "Обновить статус в таблице", "type": "main", "index": 0 }]]
+    },
+    "Обновить статус в таблице": {
+      "main": [
+        [{ "node": "Обновить карточку в Telegram", "type": "main", "index": 0 }],
+        [{ "node": "Ошибка обновления статуса", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
