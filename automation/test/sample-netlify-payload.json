@@ -1,11 +1,13 @@
 {
-  "_comment": "Пример тела запроса от Netlify Forms (без реальных данных) — используйте для curl-теста workflow-1. Реальная структура может отличаться, см. automation/test/test.md.",
-  "form_name": "contact",
-  "data": {
-    "name": "Иван Тестовый",
-    "email": "test@example.com",
-    "phone": "+7 900 000-00-00",
-    "company": "ООО Пример",
-    "message": "Здравствуйте! Интересует автоматизация обработки заявок для нашей компании."
-  }
+  "_comment": "Пример тела запроса от Netlify Forms (без реальных данных) в реальном формате исходящего webhook: всё внутри payload. Поля — как у формы сайта taina-diagnostic: name, contact, message.",
+  "payload": {
+    "form_name": "taina-diagnostic",
+    "data": {
+      "name": "Иван Тестовый",
+      "contact": "@ivan_test",
+      "message": "Здравствуйте! Хочу разобрать, как ускорить ответы сотрудникам по регламентам."
+    }
+  },
+  "site_url": "https://example.netlify.app",
+  "created_at": "2026-01-01T10:00:00.000Z"
 }
