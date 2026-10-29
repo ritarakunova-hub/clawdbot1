@@ -1,0 +1,13 @@
+{
+  "_comment": "Пример тела запроса от Netlify Forms (без реальных данных) в реальном формате исходящего webhook: всё внутри payload. Поля — как у формы сайта taina-diagnostic: name, contact, message.",
+  "payload": {
+    "form_name": "taina-diagnostic",
+    "data": {
+      "name": "Иван Тестовый",
+      "contact": "@ivan_test",
+      "message": "Здравствуйте! Хочу разобрать, как ускорить ответы сотрудникам по регламентам."
+    }
+  },
+  "site_url": "https://example.netlify.app",
+  "created_at": "2026-01-01T10:00:00.000Z"
+}

@@ -1,0 +1,384 @@
+{
+  "name": "TAINA Sales Engine — Поиск лидов",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger-node",
+      "name": "Запустить вручную",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [180, 200]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "days", "daysInterval": 1, "triggerAtHour": 9, "triggerAtMinute": 0 }
+          ]
+        }
+      },
+      "id": "schedule-trigger-node",
+      "name": "По расписанию (можно отключить)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [180, 380]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "niche", "value": "стоматология", "type": "string" },
+            { "id": "2", "name": "city", "value": "Москва", "type": "string" },
+            { "id": "3", "name": "limit", "value": 5, "type": "number" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "params-node",
+      "name": "Параметры поиска (меняйте здесь)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "content": "⚠️ Проверьте перед первым запуском: точный URL и параметры Outscraper API в этой ноде взяты из общей документации/поиска и НЕ были подтверждены вживую (сетевой доступ к docs был заблокирован). Откройте свой личный кабинет Outscraper → API docs → пример запроса для вашего аккаунта и при необходимости поправьте URL/параметры здесь.",
+        "height": 220,
+        "width": 320
+      },
+      "id": "sticky-outscraper",
+      "name": "Заметка: проверьте Outscraper",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [640, 60]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.app.outscraper.com/maps/search-v3",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "X-API-KEY", "value": "YOUR_OUTSCRAPER_API_KEY" }]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "query", "value": "={{ $json.niche + ' ' + $json.city }}" },
+            { "name": "limit", "value": "={{ $json.limit }}" },
+            { "name": "async", "value": "false" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "outscraper-node",
+      "name": "Найти компании (Outscraper)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 300],
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Ошибка в Sales Engine: поиск компаний (Outscraper)\n\n{{ $json.error?.message || $json.error || 'см. Executions в n8n' }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-error-outscraper",
+      "name": "Ошибка: поиск компаний",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [860, 460],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Outscraper обычно возвращает { data: [ [ {...компания...}, ... ] ] } для синхронного запроса,\n// но структура может отличаться в зависимости от версии API — обрабатываем варианты защитно.\nconst resp = $input.first().json;\nlet list = [];\nif (Array.isArray(resp.data) && resp.data.length && Array.isArray(resp.data[0])) {\n  list = resp.data[0];\n} else if (Array.isArray(resp.data)) {\n  list = resp.data;\n} else if (Array.isArray(resp)) {\n  list = resp;\n}\n\nreturn list.map(c => ({\n  json: {\n    company: c.name || c.title || '—',\n    site: c.site || c.website || '',\n    industry: c.category || c.type || '',\n    phone: c.phone || '',\n    address: c.full_address || c.address || ''\n  }\n}));"
+      },
+      "id": "prepare-list-node",
+      "name": "Подготовить список компаний",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": { "batchSize": 1, "options": {} },
+      "id": "split-in-batches-node",
+      "name": "По одной компании",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "content": "Нода \"По одной компании\" имеет два выхода — n8n подписывает их прямо на холсте: \"loop\" (вести в следующую ноду цепочки и в конце снова сюда же) и \"done\" (срабатывает один раз, когда компании закончились — сюда ничего вести не нужно). После импорта проверьте, что стрелки идут именно с выхода \"loop\", а не \"done\".",
+        "height": 200,
+        "width": 300
+      },
+      "id": "sticky-loop",
+      "name": "Заметка: выходы Loop/Done",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1080, 60]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "YOUR_APPS_SCRIPT_URL",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "action", "value": "checkExists" },
+            { "name": "company", "value": "={{ $json.company }}" },
+            { "name": "site", "value": "={{ $json.site }}" },
+            { "name": "token", "value": "YOUR_WEBHOOK_TOKEN" }
+          ]
+        },
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+        }
+      },
+      "id": "check-exists-node",
+      "name": "Проверить дубликат",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 300],
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Ошибка в Sales Engine: проверка дублей для {{ $('По одной компании').item.json.company }}\n\n{{ $json.error?.message || $json.error || 'см. Executions в n8n' }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-error-checkexists",
+      "name": "Ошибка: проверка дублей",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1300, 480],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.exists }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-new-node",
+      "name": "Новая компания?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: \"GigaChat\", temperature: 0.3, messages: [ { role: \"system\", content: \"Ты — аналитик студии TAINA. Оцениваешь компанию как потенциального клиента на AI-автоматизацию (AI-ассистенты, RAG-боты, автоматизация процессов).\\n\\nСТРОГО РАЗДЕЛЯЙ факты и гипотезы:\\n- ФАКТ — то, что явно написано в предоставленных данных о компании.\\n- ГИПОТЕЗА — твоё предположение о проблеме или потребности. Всегда помечай как гипотезу.\\nЕсли данных мало, так и скажи.\\n\\nКРИТЕРИИ ОЦЕНКИ (score 0–100):\\n1. Соответствие профилю TAINA (много обращений клиентов, ручная обработка повторяющихся запросов, много документации, отдел продаж, медицина/образование/сервис).\\n2. Есть ли явный рутинный повторяющийся процесс.\\n3. Потенциальная ценность проекта.\\n4. Вероятность бюджета.\\n5. Есть ли на кого выйти (ЛПР).\\n6. Насколько легко персонализировать предложение.\\n\\nФОРМАТ ОТВЕТА (строго, без лишнего текста):\\nКОМПАНИЯ: [название]\\nОТРАСЛЬ: [из данных]\\nФАКТЫ: [2–4 пункта, только то, что есть в данных]\\nSCORE: [0–100]\\nПОЧЕМУ ТАКОЙ SCORE: [1–2 предложения]\\nГИПОТЕЗА (ПРОБЛЕМА): [явно помечено как предположение]\\nВОЗМОЖНОЕ РЕШЕНИЕ: [AI-разбор / AI-пилот / AI-система]\\nЗАЦЕПКА ДЛЯ ПЕРСОНАЛИЗАЦИИ: [конкретная деталь или \\\"нет чёткой зацепки\\\"]\\n\\nНикаких обещаний ROI и цифр эффекта. Если фактов почти нет — SCORE не выше 30, явно написать \\\"мало данных для оценки\\\".\" }, { role: \"user\", content: \"Компания: \" + $('По одной компании').item.json.company + \"\\nОтрасль/категория: \" + $('По одной компании').item.json.industry + \"\\nСайт: \" + ($('По одной компании').item.json.site || 'нет сайта') + \"\\nАдрес: \" + $('По одной компании').item.json.address + \"\\nТелефон: \" + $('По одной компании').item.json.phone } ] } }}",
+        "options": {}
+      },
+      "id": "gigachat-node",
+      "name": "GigaChat: оценить компанию",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1740, 220],
+      "onError": "continueErrorOutput",
+      "continueOnFail": true,
+      "credentials": {
+        "httpBearerAuth": { "id": "YOUR_GIGACHAT_CREDENTIAL_ID", "name": "GigaChat" }
+      }
+    },
+    {
+      "parameters": {
+        "content": "Промпт Исследователя уже вставлен в системное сообщение этой ноды (поле jsonBody). Credential \"GigaChat\" должен быть создан заранее в n8n (Generic Credential Type → HTTP Bearer Auth, имя \"GigaChat\", значение — действующий access-токен GigaChat). Если запрос падает с ошибкой сертификата — см. раздел про GigaChat в automation/README.md (нужен корневой сертификат Минцифры на сервере n8n).",
+        "height": 220,
+        "width": 320
+      },
+      "id": "sticky-prompt",
+      "name": "Заметка: GigaChat credential и TLS",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1740, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Ошибка в Sales Engine: обращение к GigaChat для {{ $('По одной компании').item.json.company }}\n\n{{ $json.error?.message || $json.error || 'см. Executions в n8n' }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-error-gigachat",
+      "name": "Ошибка: GigaChat",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1740, 460],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst content = item.choices?.[0]?.message?.content || item.content || '';\nconst company = $('По одной компании').item.json;\n\nfunction grab(label, text) {\n  const re = new RegExp(label + '\\\\s*:\\\\s*([\\\\s\\\\S]*?)(?=\\\\n[А-ЯЁA-Z][А-ЯЁA-Z \\\\(\\\\)0-9]*:|$)', 'i');\n  const m = text.match(re);\n  return m ? m[1].trim() : '';\n}\n\nconst scoreRaw = grab('SCORE', content).replace(/[^0-9]/g, '');\nconst score = scoreRaw ? parseInt(scoreRaw, 10) : '';\n\nreturn [{\n  json: {\n    company: grab('КОМПАНИЯ', content) || company.company,\n    site: company.site,\n    industry: grab('ОТРАСЛЬ', content) || company.industry,\n    facts: grab('ФАКТЫ', content),\n    score,\n    scoreReason: grab('ПОЧЕМУ ТАКОЙ SCORE', content),\n    hypothesis: grab('ГИПОТЕЗА \\\\(ПРОБЛЕМА\\\\)', content) || grab('ГИПОТЕЗА', content),\n    solution: grab('ВОЗМОЖНОЕ РЕШЕНИЕ', content),\n    hook: grab('ЗАЦЕПКА ДЛЯ ПЕРСОНАЛИЗАЦИИ', content),\n    rawResponse: content\n  }\n}];"
+      },
+      "id": "parse-gigachat-node",
+      "name": "Разобрать ответ GigaChat",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1960, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_APPS_SCRIPT_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { token: 'YOUR_WEBHOOK_TOKEN', source: 'sales-engine', company: $json.company, site: $json.site, industry: $json.industry, score: $json.score, hypothesis: $json.hypothesis, solution: $json.solution } }}",
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+        }
+      },
+      "id": "add-lead-node",
+      "name": "Записать лид в таблицу",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2180, 220],
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Ошибка в Sales Engine: запись в таблицу для {{ $('Разобрать ответ GigaChat').item.json.company }}\n\n{{ $json.error?.message || $json.error || 'см. Executions в n8n' }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-error-addlead",
+      "name": "Ошибка: запись в таблицу",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2180, 460],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🎯 Новый лид (Score: {{ $('Разобрать ответ GigaChat').item.json.score }})\n\nКомпания: {{ $('Разобрать ответ GigaChat').item.json.company }}\nОтрасль: {{ $('Разобрать ответ GigaChat').item.json.industry }}\nСайт: {{ $('Разобрать ответ GigaChat').item.json.site }}\n\nФакты: {{ $('Разобрать ответ GigaChat').item.json.facts }}\nПочему такой score: {{ $('Разобрать ответ GigaChat').item.json.scoreReason }}\nГипотеза: {{ $('Разобрать ответ GigaChat').item.json.hypothesis }}\nЧто предложить: {{ $('Разобрать ответ GigaChat').item.json.solution }}\nЗацепка: {{ $('Разобрать ответ GigaChat').item.json.hook }}\n\nID в таблице: {{ $json.id }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Одобрить",
+                    "additionalFields": { "callback_data": "=approve:{{ $json.id }}" }
+                  },
+                  {
+                    "text": "❌ Отклонить",
+                    "additionalFields": { "callback_data": "=reject:{{ $json.id }}" }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "id": "telegram-card-node",
+      "name": "Отправить карточку лида",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2400, 220],
+      "credentials": {
+        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+      }
+    }
+  ],
+  "connections": {
+    "Запустить вручную": {
+      "main": [[{ "node": "Параметры поиска (меняйте здесь)", "type": "main", "index": 0 }]]
+    },
+    "По расписанию (можно отключить)": {
+      "main": [[{ "node": "Параметры поиска (меняйте здесь)", "type": "main", "index": 0 }]]
+    },
+    "Параметры поиска (меняйте здесь)": {
+      "main": [[{ "node": "Найти компании (Outscraper)", "type": "main", "index": 0 }]]
+    },
+    "Найти компании (Outscraper)": {
+      "main": [
+        [{ "node": "Подготовить список компаний", "type": "main", "index": 0 }],
+        [{ "node": "Ошибка: поиск компаний", "type": "main", "index": 0 }]
+      ]
+    },
+    "Подготовить список компаний": {
+      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+    },
+    "По одной компании": {
+      "main": [
+        [{ "node": "Проверить дубликат", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Проверить дубликат": {
+      "main": [
+        [{ "node": "Новая компания?", "type": "main", "index": 0 }],
+        [{ "node": "Ошибка: проверка дублей", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ошибка: проверка дублей": {
+      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+    },
+    "Новая компания?": {
+      "main": [
+        [{ "node": "GigaChat: оценить компанию", "type": "main", "index": 0 }],
+        [{ "node": "По одной компании", "type": "main", "index": 0 }]
+      ]
+    },
+    "GigaChat: оценить компанию": {
+      "main": [
+        [{ "node": "Разобрать ответ GigaChat", "type": "main", "index": 0 }],
+        [{ "node": "Ошибка: GigaChat", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ошибка: GigaChat": {
+      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+    },
+    "Разобрать ответ GigaChat": {
+      "main": [[{ "node": "Записать лид в таблицу", "type": "main", "index": 0 }]]
+    },
+    "Записать лид в таблицу": {
+      "main": [
+        [{ "node": "Отправить карточку лида", "type": "main", "index": 0 }],
+        [{ "node": "Ошибка: запись в таблицу", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ошибка: запись в таблицу": {
+      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+    },
+    "Отправить карточку лида": {
+      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
