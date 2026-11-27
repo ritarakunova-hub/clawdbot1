@@ -18,13 +18,24 @@ Google Таблица через один скрипт + Telegram + GigaChat-cre
 
 ## Про репозиторий и форму сайта
 
-Сайт TAINA Studio лежит в другом репозитории (`clawdbot`, папка
-`taina-site-v2`). Его форма называется **`taina-diagnostic`** и присылает три
-поля: `name` (имя), `contact` (телефон, почта или Telegram одной строкой) и
-`message` (текст, необязательно). Нода "Привести поля к простому виду" в
-workflow-1 читает именно их, а заодно понимает и отдельные `email`/`phone`/
-`company`, если форма когда-нибудь поменяется. Скрипт Apps Script получает
-уже приведённые поля, поэтому названия полей формы для него не важны.
+Сайт TAINA Studio лежит в другом репозитории (`clawdbot`, файл
+`taina-site/index.html`). Форма называется **`taina-diagnostic`** и сейчас
+содержит поля `name`, `contact`, `message`. В проверенной версии HTML
+**нет отдельного поля согласия на обработку персональных данных**.
+
+Новая версия workflow-1 проверяет согласие до записи заявки. Поэтому текущие
+отправки формы будут отклоняться с `consent_required`, пока на сайте не появится
+явный обязательный checkbox согласия со ссылкой на утверждённую политику
+обработки персональных данных. Текст политики, оператор данных, основание,
+сроки хранения и порядок отзыва/удаления должны быть отдельно утверждены.
+Не заменяйте это простым скрытым полем или предустановленной галочкой.
+
+Netlify подпись проверяется по исходным байтам HTTP body до разбора JSON.
+В n8n Webhook включён `rawBody`, а Apps Script сверяет JWS из
+`X-Webhook-Signature` (HS256, `iss=netlify`, SHA-256 body) с секретом,
+который хранится только в Script Properties. Не активируйте приём заявок до
+добавления согласия на сайте и проверки тестового workflow на синтетических
+данных.
 
 Это единственный вариант мини-CRM и поиска клиентов (выбран владелицей в
 октябре 2026). Старый вариант на Node.js (папки `mini-crm/` и
@@ -84,17 +95,19 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
    Канал связи | Score (0-100) | Возможная проблема (гипотеза) | Что предложить |
    Статус | Дата первого контакта | Дата последнего контакта | Следующее действие |
    Дата следующего действия | Ответ клиента | Продукт | Сумма (₽) | Комментарий |
-   Telegram Chat ID | Telegram Message ID
+   Telegram Chat ID | Telegram Message ID | Согласие на обработку ПДн |
+   Netlify Submission ID
    ```
 
 3. Расширения → Apps Script → сотрите содержимое `Code.gs` по умолчанию →
    вставьте код из [`apps-script/Code.gs`](./apps-script/Code.gs).
-4. Задайте в Apps Script → Project Settings → Script Properties три свойства:
-   - `WEBHOOK_TOKEN` — длинная случайная строка для внутреннего обмена n8n ↔ Apps Script;
+4. Задайте в Apps Script → Project Settings → Script Properties четыре свойства:
+   - `WEBHOOK_TOKEN` — длинная случайная строка для внутренних n8n → Apps Script вызовов;
    - `TELEGRAM_APPROVER_USER_ID` — числовой Telegram user ID владельца, которому разрешено нажимать кнопки;
-   - `TELEGRAM_CHAT_ID` — числовой ID личного чата владельца с ботом.
+   - `TELEGRAM_CHAT_ID` — числовой ID личного чата владельца с ботом;
+   - `NETLIFY_JWS_SECRET` — JWS secret, заданный в настройке outgoing webhook Netlify Form notification.
 
-   Значения не коммитьте, не вставляйте в JSON и не отправляйте в чат. Используйте отдельный тестовый чат и тестовую таблицу для первого прогона.
+   Один и тот же JWS secret должен быть сохранён в Netlify и в Apps Script Script Properties. Не вставляйте его в workflow JSON или репозиторий. Значения не коммитьте и не отправляйте в чат. Используйте отдельный тестовый чат и тестовую таблицу для первого прогона.
 5. Кнопка "Развернуть" → "Новое развёртывание" → тип "Веб-приложение":
    Execute as — **Me**, Who has access — **Anyone** (доступ защищён токеном
    на уровне кода).
@@ -121,7 +134,8 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
 | Плейсхолдер | Где взять | Где встречается |
 |---|---|---|
 | `YOUR_APPS_SCRIPT_URL` | шаг "а".6 | во всех HTTP Request нодах к таблице |
-| `YOUR_WEBHOOK_TOKEN` | шаг "а".4 | там же, рядом с URL |
+| `YOUR_WEBHOOK_TOKEN` | шаг "а".4 | во внутренних HTTP Request нодах к Apps Script |
+| `NETLIFY_JWS_SECRET` | JWS secret из outgoing webhook Netlify | только Netlify notification и Apps Script Script Properties; в n8n JSON не вставляется |
 | `YOUR_TELEGRAM_CHAT_ID` | раздел "в" | во всех Telegram-нодах |
 | `YOUR_TELEGRAM_CREDENTIAL_ID` | раздел "в" | выбирается из выпадающего списка в ноде, не текстом |
 | `YOUR_RANDOM_WEBHOOK_PATH` | придумайте сами | нода Webhook в workflow-1 |
@@ -135,9 +149,10 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
 
 Важные детали по каждому workflow:
 
-- **workflow-1**: путь вебхука (`YOUR_RANDOM_WEBHOOK_PATH`) придумайте сами —
-  любая длинная строка из букв/цифр, чтобы её нельзя было угадать (это
-  дополнительная защита сверх токена).
+- **workflow-1**: путь вебхука (`YOUR_RANDOM_WEBHOOK_PATH`) — дополнительная
+  мера снижения шума, но не аутентификация. Реальная защита — проверка JWS
+  `X-Webhook-Signature` по исходному body. В Webhook node должно оставаться
+  `options.rawBody = true`; не удаляйте этот параметр.
 - **workflow-2**: проверьте в настройках workflow (шестерёнка → Settings)
   часовой пояс — должен быть Europe/Moscow, иначе напоминание придёт не в
   10:00 по Москве.
@@ -206,15 +221,26 @@ deployment. Не обновляйте production deployment до проверк�
 
 ---
 
-## д) Netlify — подключение webhook
+## д) Netlify — безопасная настройка webhook
 
-1. Активируйте workflow-1 в n8n (тумблер Active).
-2. Откройте ноду Webhook → скопируйте **Production URL** (не Test URL — Test
-   URL работает только пока вы вручную нажали "Listen for test event").
-3. В Netlify: Site configuration → Forms → Form notifications → Add
-   notification → Outgoing webhook.
-4. Event to listen for: New form submission. URL to notify: вставьте
-   Production URL. Form: выберите вашу форму. Сохраните.
+**Не активируйте production workflow на текущей форме:** проверенный файл
+`clawdbot/taina-site/index.html` пока не содержит обязательного согласия.
+Новая интеграция fail-closed и будет отклонять отправки без подтверждённого
+согласия.
+
+1. Сначала утвердите политику обработки персональных данных и текст согласия,
+   затем добавьте на форму `taina-diagnostic` обязательный unchecked checkbox
+   с именем `consent`. Нельзя автоматически проставлять согласие.
+2. Создайте отдельную тестовую копию формы/сайта и тестовый n8n webhook.
+3. В Netlify откройте Forms → Submission notifications → Add notification →
+   Outgoing webhook и выберите только форму `taina-diagnostic`.
+4. В поле JWS secret token задайте длинный случайный секрет. Тот же секрет
+   сохраните в Apps Script Script Properties как `NETLIFY_JWS_SECRET`.
+5. Для теста используйте только Test URL ноды Webhook и включённый режим
+   `rawBody`. После успешных тестов production URL и activation — отдельное
+   решение владельца; не переключайте на production автоматически.
+6. Перед включением проверьте, что уведомление Netlify содержит заголовок
+   `X-Webhook-Signature`, а тестовый подписанный запрос проходит проверку.
 
 ---
 
