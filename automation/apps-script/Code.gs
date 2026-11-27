@@ -667,11 +667,11 @@ function normalizeSite(value) {
 
 function checkToken(token) {
   var expected = PropertiesService.getScriptProperties().getProperty('WEBHOOK_TOKEN');
-  if (!expected) {
-    // Токен не настроен — считаем это ошибкой конфигурации, а не пропускаем проверку.
+  if (!expected || typeof token !== 'string' || token.length > 4096) {
+    // Missing/malformed credentials are configuration errors, never a pass.
     return false;
   }
-  return token === expected;
+  return constantTimeTextEquals(token, expected);
 }
 
 function jsonOutput(obj) {
