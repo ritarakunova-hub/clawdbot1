@@ -3,11 +3,12 @@
  * Обслуживает и мини-CRM (заявки с сайта), и Sales Engine (лиды с Google Maps).
  *
  * Действия:
- *   doPost  { token, source, ... }                      — добавить строку (лид)
- *   doGet   ?action=overdue&token=...                   — заявки/лиды без действия в срок
- *   doGet   ?action=checkExists&company=...&site=...&token=...  — проверка дублей
- *   doPost  { action:'updateStatus', ... }                    — сменить статус безопасно
- *   doPost  { action:'receiveSignedNetlifyLead', ... }        — принять подписанную заявку
+ *   doPost  { token, source:'sales-engine', ... }       — добавить Sales Engine lead
+ *   doPost  { action:'getOverdue', token }                   — заявки/лиды без действия в срок
+ *   doPost  { action:'checkExists', company, site, token }   — проверка дублей
+ *   doPost  { action:'updateStatus', ... }                   — сменить статус безопасно
+ *   doPost  { action:'receiveSignedNetlifyLead', ... }       — принять подписанную заявку
+ *   doGet   — запрещён; токены и операции нельзя передавать в URL
  *
  * Настройка токена (обязательно):
  *   Расширения → Apps Script → шестерёнка "Настройки проекта" → "Свойства скрипта"
