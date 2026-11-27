@@ -131,6 +131,15 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
    - `NETLIFY_JWS_SECRET` — JWS secret, заданный в настройке outgoing webhook Netlify Form notification.
 
    Один и тот же JWS secret должен быть сохранён в Netlify и в Apps Script Script Properties. Не вставляйте его в workflow JSON или репозиторий. Значения не коммитьте и не отправляйте в чат. Используйте отдельный тестовый чат и тестовую таблицу для первого прогона.
+
+   Внутренний `WEBHOOK_TOKEN` передаётся в POST body: Apps Script Web App
+   не предоставляет произвольные HTTP request headers в `doPost(e)`.
+   Поэтому ограничьте доступ к execution history n8n, включите разумное
+   pruning/retention и не экспортируйте execution data с уже подставленным
+   токеном или реальными заявками. Используйте длинный случайный token и
+   ротируйте его при любом подозрении на раскрытие. Apps Script сравнивает
+   его fail-closed с constant-time helper; это не заменяет управление
+   доступом и сроками хранения execution data.
 5. Кнопка "Развернуть" → "Новое развёртывание" → тип "Веб-приложение":
    Execute as — **Me**, Who has access — **Anyone** (доступ защищён токеном
    на уровне кода).
