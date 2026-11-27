@@ -45,6 +45,12 @@ function doPost(e) {
     if (payload.action === 'receiveSignedNetlifyLead') {
       return receiveSignedNetlifyLead(payload);
     }
+    if (payload.action === 'getOverdue') {
+      return getOverdue();
+    }
+    if (payload.action === 'checkExists') {
+      return checkExists(payload.company || '', payload.site || '');
+    }
     if (payload.action === 'saveApprovalMessage') {
       return saveApprovalMessage(payload.id, payload.chatId, payload.messageId);
     }
@@ -68,26 +74,8 @@ function doPost(e) {
 }
 
 function doGet(e) {
-  var action = e.parameter.action;
-
-  if (!checkToken(e.parameter.token)) {
-    return jsonOutput({ ok: false, error: 'Неверный или отсутствующий token' });
-  }
-
-  try {
-    if (action === 'overdue') {
-      return getOverdue();
-    }
-    if (action === 'checkExists') {
-      return checkExists(e.parameter.company || '', e.parameter.site || '');
-    }
-    if (action === 'updateStatus') {
-      return jsonOutput({ ok: false, error: 'status_update_requires_post' });
-    }
-    return jsonOutput({ ok: false, error: 'Неизвестное действие: ' + action });
-  } catch (err) {
-    return jsonOutput({ ok: false, error: String(err) });
-  }
+  // Never accept bearer secrets or mutable/read operations in the URL.
+  return jsonOutput({ ok: false, error: 'get_not_allowed_use_post_body' });
 }
 
 // ---------- signed Netlify intake ----------
