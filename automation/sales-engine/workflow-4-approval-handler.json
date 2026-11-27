@@ -3,49 +3,64 @@
   "active": false,
   "nodes": [
     {
-      "parameters": { "updates": ["callback_query"] },
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ]
+      },
       "id": "telegram-trigger-node",
       "name": "Нажатие кнопки в Telegram",
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.1,
-      "position": [220, 300],
+      "position": [
+        220,
+        300
+      ],
       "webhookId": "taina-approval",
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json;\nconst cq = body.callback_query || (body.body && body.body.callback_query);\nif (!cq) {\n  throw new Error('Событие без callback_query — это не нажатие inline-кнопки');\n}\nconst data = cq.data || '';\nconst [action, id] = data.split(':');\nconst approved = action === 'approve';\n\nreturn [{\n  json: {\n    id,\n    status: approved ? 'Одобрено' : 'Отклонено',\n    mark: approved ? '✅ Одобрено' : '❌ Отклонено',\n    chatId: cq.message.chat.id,\n    messageId: cq.message.message_id,\n    originalText: cq.message.text || ''\n  }\n}];"
+        "jsCode": "const body = $input.first().json;\nconst cq = body.callback_query || (body.body && body.body.callback_query);\nif (!cq || !cq.id) {\n  throw new Error('Событие без callback_query.id — нельзя безопасно обработать callback');\n}\n\nconst match = String(cq.data || '').match(/^(approve|reject):([1-9][0-9]*)$/);\nconst chat = cq.message && cq.message.chat ? cq.message.chat : {};\nconst approverId = String(cq.from && cq.from.id || '');\nconst chatId = String(chat.id || '');\nconst messageId = String(cq.message && cq.message.message_id || '');\nconst privateChat = chat.type === 'private';\nconst numericIds = /^[1-9][0-9]*$/;\n\nconst valid = Boolean(\n  match &&\n  privateChat &&\n  numericIds.test(approverId) &&\n  /^-?[1-9][0-9]*$/.test(chatId) &&\n  numericIds.test(messageId)\n);\n\nconst action = valid ? match[1] : '';\nconst id = valid ? match[2] : '';\nconst approved = action === 'approve';\n\nreturn [{\n  json: {\n    valid,\n    callbackQueryId: String(cq.id),\n    reason: valid ? '' : 'invalid_or_unauthorized_callback_shape',\n    id,\n    status: approved ? 'Одобрено' : (action === 'reject' ? 'Отклонено' : ''),\n    mark: approved ? '✅ Одобрено' : (action === 'reject' ? '❌ Отклонено' : ''),\n    approverId,\n    chatId,\n    messageId,\n    originalText: String(cq.message && cq.message.text || '')\n  }\n}];"
       },
       "id": "parse-callback-node",
       "name": "Разобрать нажатие",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 300]
+      "position": [
+        440,
+        300
+      ]
     },
     {
       "parameters": {
-        "method": "GET",
+        "method": "POST",
         "url": "YOUR_APPS_SCRIPT_URL",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "action", "value": "updateStatus" },
-            { "name": "id", "value": "={{ $json.id }}" },
-            { "name": "status", "value": "={{ $json.status }}" },
-            { "name": "token", "value": "YOUR_WEBHOOK_TOKEN" }
-          ]
-        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { action: 'updateStatus', token: 'YOUR_WEBHOOK_TOKEN', id: $json.id, status: $json.status, approverId: $json.approverId, chatId: $json.chatId, messageId: $json.messageId } }}",
         "options": {
-          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
         }
       },
       "id": "update-status-node",
       "name": "Обновить статус в таблице",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 300],
+      "position": [
+        660,
+        300
+      ],
       "onError": "continueErrorOutput",
       "continueOnFail": true
     },
@@ -59,9 +74,15 @@
       "name": "Ошибка обновления статуса",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [880, 460],
+      "position": [
+        880,
+        460
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     },
     {
@@ -77,23 +98,250 @@
       "name": "Обновить карточку в Telegram",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [880, 220],
+      "position": [
+        880,
+        220
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "valid-callback-if",
+      "name": "Корректное нажатие?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "status-updated-if",
+      "name": "Статус обновлён?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "queryId": "={{ $('Разобрать нажатие').item.json.callbackQueryId }}",
+        "additionalFields": {
+          "text": "Кнопка некорректна или устарела. Статус не изменён.",
+          "show_alert": true
+        }
+      },
+      "id": "answer-invalid-callback-node",
+      "name": "Отклонить некорректное нажатие",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        560
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "queryId": "={{ $('Разобрать нажатие').item.json.callbackQueryId }}",
+        "additionalFields": {
+          "text": "Действие не выполнено. Проверьте владельца, карточку и статус в таблице.",
+          "show_alert": true
+        }
+      },
+      "id": "answer-failed-callback-node",
+      "name": "Сообщить об отказе проверки",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        560
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "queryId": "={{ $('Разобрать нажатие').item.json.callbackQueryId }}",
+        "additionalFields": {
+          "text": "Статус сохранён.",
+          "show_alert": false
+        }
+      },
+      "id": "answer-success-callback-node",
+      "name": "Подтвердить обработку кнопки",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        160
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     }
   ],
   "connections": {
     "Нажатие кнопки в Telegram": {
-      "main": [[{ "node": "Разобрать нажатие", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Разобрать нажатие",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Разобрать нажатие": {
-      "main": [[{ "node": "Обновить статус в таблице", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Корректное нажатие?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Корректное нажатие?": {
+      "main": [
+        [
+          {
+            "node": "Обновить статус в таблице",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Отклонить некорректное нажатие",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Обновить статус в таблице": {
       "main": [
-        [{ "node": "Обновить карточку в Telegram", "type": "main", "index": 0 }],
-        [{ "node": "Ошибка обновления статуса", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Статус обновлён?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Сообщить об отказе проверки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Статус обновлён?": {
+      "main": [
+        [
+          {
+            "node": "Подтвердить обработку кнопки",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Сообщить об отказе проверки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подтвердить обработку кнопки": {
+      "main": [
+        [
+          {
+            "node": "Обновить карточку в Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Отклонить некорректное нажатие": {
+      "main": [
+        []
+      ]
+    },
+    "Сообщить об отказе проверки": {
+      "main": [
+        []
+      ]
+    },
+    "Обновить карточку в Telegram": {
+      "main": [
+        []
       ]
     }
   },
