@@ -544,6 +544,37 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true && $json.duplicate !== true && !!$json.id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "lead-added-if-node",
+      "name": "Новый лид сохранён?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2020,
+        220
+      ]
     }
   ],
   "connections": {
@@ -712,7 +743,7 @@
       "main": [
         [
           {
-            "node": "Отправить карточку лида",
+            "node": "Новый лид сохранён?",
             "type": "main",
             "index": 0
           }
@@ -811,6 +842,24 @@
     },
     "Ошибка подготовки карточки": {
       "main": [
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Новый лид сохранён?": {
+      "main": [
+        [
+          {
+            "node": "Отправить карточку лида",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "По одной компании",
