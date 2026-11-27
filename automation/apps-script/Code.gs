@@ -198,9 +198,9 @@ function checkExists(company, site) {
 }
 
 function saveApprovalMessage(id, chatId, messageId) {
-  if (!/^\\d+$/.test(String(id || '')) ||
-      !/^\\d+$/.test(String(chatId || '')) ||
-      !/^\\d+$/.test(String(messageId || ''))) {
+  if (!/^\d+$/.test(String(id || '')) ||
+      !/^\d+$/.test(String(chatId || '')) ||
+      !/^\d+$/.test(String(messageId || ''))) {
     return jsonOutput({ ok: false, error: 'invalid_approval_message_fields' });
   }
 
@@ -259,11 +259,11 @@ function saveApprovalMessage(id, chatId, messageId) {
 
 function updateStatus(id, status, approverId, chatId, messageId) {
   var allowedStatuses = ['Одобрено', 'Отклонено'];
-  if (!/^\\d+$/.test(String(id || '')) ||
+  if (!/^\d+$/.test(String(id || '')) ||
       allowedStatuses.indexOf(String(status || '')) === -1 ||
-      !/^\\d+$/.test(String(approverId || '')) ||
-      !/^\\d+$/.test(String(chatId || '')) ||
-      !/^\\d+$/.test(String(messageId || ''))) {
+      !/^\d+$/.test(String(approverId || '')) ||
+      !/^\d+$/.test(String(chatId || '')) ||
+      !/^\d+$/.test(String(messageId || ''))) {
     return jsonOutput({ ok: false, error: 'invalid_approval_fields' });
   }
 
