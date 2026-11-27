@@ -352,7 +352,7 @@ function addSalesEngineLead(payload) {
   var industry = String(payload.industry || '').trim();
   var hypothesis = String(payload.hypothesis || '').trim();
   var solution = String(payload.solution || '').trim();
-  var score = Number(payload.score);
+  var score = payload.score;
 
   if (!company || company === '—' || company.length > 200) {
     return jsonOutput({ ok: false, error: 'invalid_company' });
@@ -361,7 +361,7 @@ function addSalesEngineLead(payload) {
       hypothesis.length > 2000 || solution.length > 2000) {
     return jsonOutput({ ok: false, error: 'sales_lead_field_too_long' });
   }
-  if (!Number.isInteger(score) || score < 0 || score > 100) {
+  if (typeof score !== 'number' || !Number.isInteger(score) || score < 0 || score > 100) {
     return jsonOutput({ ok: false, error: 'invalid_score' });
   }
 
