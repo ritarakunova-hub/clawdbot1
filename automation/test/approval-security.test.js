@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -13,21 +14,41 @@ const workflow4 = JSON.parse(fs.readFileSync(
   path.join(__dirname, '..', 'sales-engine', 'workflow-4-approval-handler.json'), 'utf8'
 ));
 
-function makeHarness(initialStatus = 'На рассмотрении') {
+function makeHarness(initialStatus = 'На рассмотрении', includeSeedLead = true) {
   const headers = [
     'ID',
     'Статус',
     'Telegram Chat ID',
-    'Telegram Message ID'
+    'Telegram Message ID',
+    'Дата добавления',
+    'Компания',
+    'Сайт',
+    'Отрасль',
+    'Источник',
+    'Контакт (ЛПР)',
+    'Канал связи',
+    'Score (0-100)',
+    'Возможная проблема (гипотеза)',
+    'Что предложить',
+    'Дата первого контакта',
+    'Дата последнего контакта',
+    'Следующее действие',
+    'Дата следующего действия',
+    'Ответ клиента',
+    'Продукт',
+    'Сумма (₽)',
+    'Комментарий',
+    'Согласие на обработку ПДн',
+    'Netlify Submission ID'
   ];
-  const rows = [
-    headers,
-    [42, initialStatus, '', '']
-  ];
+  const rows = includeSeedLead
+    ? [headers, [42, initialStatus, '', '']]
+    : [headers];
   const scriptProperties = {
     WEBHOOK_TOKEN: 'synthetic-test-token',
     TELEGRAM_APPROVER_USER_ID: '777',
-    TELEGRAM_CHAT_ID: '123456'
+    TELEGRAM_CHAT_ID: '123456',
+    NETLIFY_JWS_SECRET: 'synthetic-netlify-jws-secret'
   };
   let lockDepth = 0;
   let lockReleases = 0;
@@ -88,9 +109,35 @@ function makeHarness(initialStatus = 'На рассмотрении') {
       }
     },
     Utilities: {
+      DigestAlgorithm: { SHA_256: 'SHA-256' },
       formatDate(date, _timezone, pattern) {
         if (pattern === 'yyyy-MM-dd') return date.toISOString().slice(0, 10);
         return date.toISOString();
+      },
+      base64Decode(value) {
+        return Array.from(Buffer.from(String(value), 'base64'), (byte) => byte > 127 ? byte - 256 : byte);
+      },
+      base64DecodeWebSafe(value) {
+        return Array.from(Buffer.from(String(value), 'base64url'), (byte) => byte > 127 ? byte - 256 : byte);
+      },
+      base64EncodeWebSafe(bytes) {
+        return Buffer.from(bytes.map((byte) => byte & 255)).toString('base64url');
+      },
+      computeDigest(_algorithm, bytes) {
+        return Array.from(
+          crypto.createHash('sha256').update(Buffer.from(bytes.map((byte) => byte & 255))).digest(),
+          (byte) => byte > 127 ? byte - 256 : byte
+        );
+      },
+      computeHmacSha256Signature(value, key) {
+        return Array.from(
+          crypto.createHmac('sha256', key).update(value).digest(),
+          (byte) => byte > 127 ? byte - 256 : byte
+        );
+      },
+      newBlob(bytes) {
+        const buffer = Buffer.from(bytes.map((byte) => byte & 255));
+        return { getDataAsString: (encoding) => buffer.toString(encoding || 'utf8') };
       }
     },
     console
@@ -110,6 +157,140 @@ function makeHarness(initialStatus = 'На рассмотрении') {
 function output(result) {
   assert.ok(result && typeof result.text === 'string', 'Apps Script should return JSON output');
   return JSON.parse(result.text);
+}
+
+function makeNetlifyJws(rawBody, secret = 'synthetic-netlify-jws-secret') {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const claims = Buffer.from(JSON.stringify({
+    iss: 'netlify',
+    sha256: crypto.createHash('sha256').update(rawBody).digest('hex')
+  })).toString('base64url');
+  const signingInput = header + '.' + claims;
+  const signature = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url');
+  return signingInput + '.' + signature;
+}
+
+function makeNetlifyBody(overrides = {}) {
+  return JSON.stringify({
+    payload: {
+      id: 'netlify-submission-001',
+      form_name: 'taina-diagnostic',
+      data: {
+        name: 'Synthetic Person',
+        contact: 'synthetic@example.test',
+        consent: 'yes',
+        message: 'Synthetic request text',
+        ...overrides
+      }
+    },
+    created_at: '2026-11-27T10:00:00.000Z',
+    site_url: 'https://example.test'
+  });
+}
+
+function testNetlifyJwsAndSignedIntake() {
+  const h = makeHarness('На рассмотрении', false);
+  const rawBody = makeNetlifyBody();
+  const signature = makeNetlifyJws(rawBody);
+  const rawBodyBase64 = Buffer.from(rawBody, 'utf8').toString('base64');
+
+  const verified = h.context.verifyNetlifyJws(signature, rawBodyBase64);
+  assert.equal(verified.ok, true);
+  assert.equal(verified.rawBody, rawBody);
+
+  assert.equal(h.context.verifyNetlifyJws(signature + 'tampered', rawBodyBase64).ok, false);
+  assert.equal(h.context.verifyNetlifyJws(signature, Buffer.from(rawBody + ' ').toString('base64')).ok, false);
+  assert.equal(h.context.verifyNetlifyJws(signature, '').ok, false);
+  assert.equal(h.context.verifyNetlifyJws('not-a-jws', rawBodyBase64).ok, false);
+
+  const accepted = output(h.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'synthetic-test-token',
+        action: 'receiveSignedNetlifyLead',
+        signature,
+        rawBodyBase64
+      })
+    }
+  }));
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.duplicate, false);
+  assert.equal(accepted.id, '1');
+  assert.equal(h.rows.length, 2);
+  const headers = h.rows[0];
+  const saved = h.rows[1];
+  assert.equal(saved[headers.indexOf('Компания')], '—');
+  assert.equal(saved[headers.indexOf('Контакт (ЛПР)')], 'Synthetic Person');
+  assert.equal(saved[headers.indexOf('Канал связи')], 'Email: synthetic@example.test');
+  assert.equal(saved[headers.indexOf('Комментарий')], 'Synthetic request text');
+  assert.equal(saved[headers.indexOf('Согласие на обработку ПДн')], 'yes');
+  assert.equal(saved[headers.indexOf('Netlify Submission ID')], 'netlify-submission-001');
+
+  const duplicate = output(h.context.receiveSignedNetlifyLead({ signature, rawBodyBase64 }));
+  assert.equal(duplicate.ok, true);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.id, '1');
+  assert.equal(h.rows.length, 2, 'the same signed event must not append a second row');
+
+  const noConsentBody = makeNetlifyBody({ consent: 'no' });
+  const noConsent = output(h.context.receiveSignedNetlifyLead({
+    signature: makeNetlifyJws(noConsentBody),
+    rawBodyBase64: Buffer.from(noConsentBody).toString('base64')
+  }));
+  assert.equal(noConsent.ok, false);
+  assert.equal(noConsent.error, 'consent_required');
+  assert.equal(h.rows.length, 2);
+
+  const wrongFormBody = makeNetlifyBody({ consent: 'yes' }).replace('taina-diagnostic', 'other-form');
+  const wrongForm = output(h.context.receiveSignedNetlifyLead({
+    signature: makeNetlifyJws(wrongFormBody),
+    rawBodyBase64: Buffer.from(wrongFormBody).toString('base64')
+  }));
+  assert.equal(wrongForm.ok, false);
+  assert.equal(wrongForm.error, 'unexpected_form');
+  assert.equal(h.rows.length, 2);
+
+  const unsignedBypass = output(h.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'synthetic-test-token',
+        source: 'netlify',
+        name: 'Should never be accepted'
+      })
+    }
+  }));
+  assert.equal(unsignedBypass.ok, false);
+  assert.equal(unsignedBypass.error, 'signed_netlify_action_required');
+  assert.equal(h.rows.length, 2);
+
+  assert.equal(h.context.safeSheetText('=IMPORTXML("x")'), "'=IMPORTXML(\"x\")");
+  assert.equal(h.context.safeSheetText('plain text'), 'plain text');
+  assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 2 });
+}
+
+function testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram() {
+  const webhook = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'mini-crm', 'workflow-1-new-lead.json'), 'utf8'
+  ));
+  const webhookNode = webhook.nodes.find((node) => node.id === 'webhook-node');
+  const codeNode = webhook.nodes.find((node) => node.id === 'normalize-node');
+  const httpNode = webhook.nodes.find((node) => node.id === 'sheet-node');
+  const successNode = webhook.nodes.find((node) => node.id === 'telegram-ok-node');
+  const failureNode = webhook.nodes.find((node) => node.id === 'telegram-error-node');
+
+  assert.equal(webhookNode.parameters.responseMode, 'responseNode');
+  assert.equal(webhookNode.parameters.options.rawBody, true);
+  assert.ok(codeNode.parameters.jsCode.includes('x-webhook-signature'));
+  assert.ok(codeNode.parameters.jsCode.includes('item.binary.data.data'));
+  assert.ok(httpNode.parameters.jsonBody.includes('$json'));
+  assert.equal(httpNode.parameters.method, 'POST');
+  assert.ok(successNode.parameters.text.includes('id'));
+  assert.ok(!successNode.parameters.text.includes('email'));
+  assert.ok(!successNode.parameters.text.includes('contact'));
+  assert.ok(!successNode.parameters.text.includes('message }}'));
+  assert.ok(!failureNode.parameters.text.includes('email'));
+  assert.ok(webhook.nodes.some((node) => node.type === 'n8n-nodes-base.respondToWebhook'));
+  assert.equal(webhook.connections['Проверить Netlify JWS и сохранить заявку'].main[0][0].node, 'Заявка принята?');
 }
 
 function testApprovalMessageBinding() {
@@ -293,6 +474,8 @@ function testAllWorkflowExportsAreValidJson() {
   }
 }
 
+testNetlifyJwsAndSignedIntake();
+testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram();
 testApprovalMessageBinding();
 testOwnerAndExactCardAuthorization();
 testAllowedTransitionAndIdempotency();
