@@ -37,7 +37,8 @@
               "followRedirects": true,
               "maxRedirects": 5
             }
-          }
+          },
+          "timeout": 30000
         }
       },
       "id": "overdue-node",
