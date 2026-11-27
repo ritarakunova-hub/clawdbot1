@@ -281,7 +281,9 @@ function testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram() {
   assert.equal(webhookNode.parameters.responseMode, 'responseNode');
   assert.equal(webhookNode.parameters.options.rawBody, true);
   assert.ok(codeNode.parameters.jsCode.includes('x-webhook-signature'));
-  assert.ok(codeNode.parameters.jsCode.includes('item.binary.data.data'));
+  assert.ok(codeNode.parameters.jsCode.includes('getBinaryDataBuffer'));
+  assert.ok(codeNode.parameters.jsCode.includes("toString('base64')"));
+  assert.ok(!codeNode.parameters.jsCode.includes('item.binary.data.data'));
   assert.ok(httpNode.parameters.jsonBody.includes('$json'));
   assert.equal(httpNode.parameters.method, 'POST');
   assert.ok(successNode.parameters.text.includes('id'));
