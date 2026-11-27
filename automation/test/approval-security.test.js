@@ -363,6 +363,72 @@ function testAllowedTransitionAndIdempotency() {
   assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 4 });
 }
 
+function testSalesEngineAtomicDedupeAndScoreValidation() {
+  const h = makeHarness('На рассмотрении', false);
+  const send = (payload) => output(h.context.doPost({
+    postData: {
+      contents: JSON.stringify({ token: 'synthetic-test-token', source: 'sales-engine', ...payload })
+    }
+  }));
+
+  const first = send({
+    company: 'Acme Clinic',
+    site: 'https://acme.example',
+    industry: 'Dentistry',
+    score: 72,
+    hypothesis: 'Synthetic hypothesis',
+    solution: 'Synthetic solution'
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.duplicate, false);
+  assert.equal(first.id, '1');
+  assert.equal(h.rows.length, 2);
+
+  const sameCompany = send({
+    company: '  ACME CLINIC ',
+    site: 'https://other.example',
+    industry: 'Dentistry',
+    score: 65
+  });
+  assert.equal(sameCompany.ok, true);
+  assert.equal(sameCompany.duplicate, true);
+  assert.equal(sameCompany.matched_by, 'company');
+  assert.equal(sameCompany.id, '1');
+  assert.equal(h.rows.length, 2);
+
+  const sameSite = send({
+    company: 'Different Clinic',
+    site: 'https://acme.example/',
+    industry: 'Dentistry',
+    score: 60
+  });
+  assert.equal(sameSite.ok, true);
+  assert.equal(sameSite.duplicate, true);
+  assert.equal(sameSite.matched_by, 'site');
+  assert.equal(sameSite.id, '1');
+  assert.equal(h.rows.length, 2);
+
+  const invalidHighScore = send({
+    company: 'Bad Score Clinic',
+    site: 'https://bad-score.example',
+    score: 101
+  });
+  assert.equal(invalidHighScore.ok, false);
+  assert.equal(invalidHighScore.error, 'invalid_score');
+  assert.equal(h.rows.length, 2);
+
+  const invalidNaNScore = send({
+    company: 'NaN Clinic',
+    site: 'https://nan.example',
+    score: 'not a score'
+  });
+  assert.equal(invalidNaNScore.ok, false);
+  assert.equal(invalidNaNScore.error, 'invalid_score');
+  assert.equal(h.rows.length, 2);
+
+  assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 3 });
+}
+
 function testGetRejectsAllActionsAndPostCarriesToken() {
   const h = makeHarness();
   assert.equal(output(h.context.saveApprovalMessage('42', '123456', '9001')).ok, true);
@@ -486,6 +552,19 @@ function testWorkflow4ValidationAndRouting() {
   assert.ok(workflow4.connections['Статус обновлён?'].main[0][0].node === 'Подтвердить обработку кнопки');
 }
 
+function testWorkflow3SkipsAtomicDuplicatesBeforeTelegram() {
+  const write = workflow3.nodes.find((node) => node.id === 'add-lead-node');
+  const gate = workflow3.nodes.find((node) => node.id === 'lead-added-if-node');
+  assert.ok(write);
+  assert.ok(gate);
+  assert.equal(write.parameters.method, 'POST');
+  assert.ok(write.parameters.jsonBody.includes("source: 'sales-engine'"));
+  assert.ok(gate.parameters.conditions.conditions[0].leftValue.includes('$json.duplicate !== true'));
+  assert.equal(workflow3.connections['Записать лид в таблицу'].main[0][0].node, 'Новый лид сохранён?');
+  assert.equal(workflow3.connections['Новый лид сохранён?'].main[0][0].node, 'Отправить карточку лида');
+  assert.equal(workflow3.connections['Новый лид сохранён?'].main[1][0].node, 'По одной компании');
+}
+
 function testWorkflow3StoresCardBeforeButtons() {
   const card = workflow3.nodes.find((node) => node.id === 'telegram-card-node');
   const save = workflow3.nodes.find((node) => node.id === 'save-approval-message-node');
@@ -518,6 +597,7 @@ function testAllWorkflowExportsAreValidJson() {
 }
 
 testNetlifyJwsAndSignedIntake();
+testSalesEngineAtomicDedupeAndScoreValidation();
 testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram();
 testApprovalMessageBinding();
 testOwnerAndExactCardAuthorization();
@@ -526,6 +606,7 @@ testGetRejectsAllActionsAndPostCarriesToken();
 testWorkflow2And3UsePostBodies();
 testWorkflow4ValidationAndRouting();
 testWorkflow3StoresCardBeforeButtons();
+testWorkflow3SkipsAtomicDuplicatesBeforeTelegram();
 testAllWorkflowExportsAreValidJson();
 
 console.log('All n8n approval security tests passed.');
