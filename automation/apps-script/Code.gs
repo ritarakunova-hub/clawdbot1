@@ -6,18 +6,22 @@
  *   doPost  { token, source, ... }                      — добавить строку (лид)
  *   doGet   ?action=overdue&token=...                   — заявки/лиды без действия в срок
  *   doGet   ?action=checkExists&company=...&site=...&token=...  — проверка дублей
- *   doGet   ?action=updateStatus&id=...&status=...&token=...    — сменить статус
+ *   doPost  { action:'updateStatus', ... }                    — сменить статус безопасно
  *
  * Настройка токена (обязательно):
  *   Расширения → Apps Script → шестерёнка "Настройки проекта" → "Свойства скрипта"
- *   → добавить свойство WEBHOOK_TOKEN = длинная случайная строка.
- *   Этот же токен потом вставляется в n8n (в HTTP Request ноды), но НЕ в файлы.
+ *   → добавить свойства:
+ *     WEBHOOK_TOKEN = длинная случайная строка для внутренних n8n → Apps Script вызовов;
+ *     TELEGRAM_APPROVER_USER_ID = numeric Telegram user ID владельца;
+ *     TELEGRAM_CHAT_ID = numeric private chat ID владельца.
+ *   Эти значения не хранить в Git и не отправлять в чат.
  *
  * Столбцы (первая строка листа, порядок не важен — скрипт ищет по названию):
  *   ID, Дата добавления, Компания, Сайт, Отрасль, Источник, Контакт (ЛПР),
  *   Канал связи, Score (0-100), Возможная проблема (гипотеза), Что предложить,
  *   Статус, Дата первого контакта, Дата последнего контакта, Следующее действие,
- *   Дата следующего действия, Ответ клиента, Продукт, Сумма (₽), Комментарий
+ *   Дата следующего действия, Ответ клиента, Продукт, Сумма (₽), Комментарий,
+ *   Telegram Chat ID, Telegram Message ID
  */
 
 var TIMEZONE = 'Europe/Moscow';
@@ -36,6 +40,15 @@ function doPost(e) {
   }
 
   try {
+    if (payload.action === 'saveApprovalMessage') {
+      return saveApprovalMessage(payload.id, payload.chatId, payload.messageId);
+    }
+    if (payload.action === 'updateStatus') {
+      return updateStatus(
+        payload.id, payload.status, payload.approverId, payload.chatId, payload.messageId
+      );
+    }
+
     var source = payload.source || 'netlify';
     if (source === 'netlify') {
       return addNetlifyLead(payload);
@@ -64,7 +77,7 @@ function doGet(e) {
       return checkExists(e.parameter.company || '', e.parameter.site || '');
     }
     if (action === 'updateStatus') {
-      return updateStatus(e.parameter.id, e.parameter.status);
+      return jsonOutput({ ok: false, error: 'status_update_requires_post' });
     }
     return jsonOutput({ ok: false, error: 'Неизвестное действие: ' + action });
   } catch (err) {
@@ -111,6 +124,8 @@ function addSalesEngineLead(payload) {
   setCol(row, headers, 'Возможная проблема (гипотеза)', payload.hypothesis || '');
   setCol(row, headers, 'Что предложить', payload.solution || '');
   setCol(row, headers, 'Статус', 'На рассмотрении');
+  setCol(row, headers, 'Telegram Chat ID', '');
+  setCol(row, headers, 'Telegram Message ID', '');
 
   sheet.appendRow(row);
   return jsonOutput({ ok: true, id: id, row: sheet.getLastRow() });
@@ -182,31 +197,130 @@ function checkExists(company, site) {
   return jsonOutput({ ok: true, exists: false });
 }
 
-function updateStatus(id, status) {
-  if (!id || !status) {
-    return jsonOutput({ ok: false, error: 'Не переданы id или status' });
+function saveApprovalMessage(id, chatId, messageId) {
+  if (!/^\d+$/.test(String(id || '')) ||
+      !/^\d+$/.test(String(chatId || '')) ||
+      !/^\d+$/.test(String(messageId || ''))) {
+    return jsonOutput({ ok: false, error: 'invalid_approval_message_fields' });
   }
 
-  var sheet = getSheet();
-  var headers = getHeaders(sheet);
-  var idCol = headers.indexOf('ID');
-  var statusCol = headers.indexOf('Статус');
-  if (idCol === -1 || statusCol === -1) {
-    return jsonOutput({ ok: false, error: 'В таблице нет столбца ID или Статус' });
+  var expectedChatId = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+  if (!expectedChatId || String(chatId) !== String(expectedChatId)) {
+    return jsonOutput({ ok: false, error: 'approval_chat_not_allowed' });
   }
 
-  var lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    var idValues = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
-    for (var i = 0; i < idValues.length; i++) {
-      if (String(idValues[i][0]) === String(id)) {
-        sheet.getRange(i + 2, statusCol + 1).setValue(status);
-        return jsonOutput({ ok: true });
-      }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = getSheet();
+    var headers = getHeaders(sheet);
+    var idCol = headers.indexOf('ID');
+    var statusCol = headers.indexOf('Статус');
+    var chatCol = headers.indexOf('Telegram Chat ID');
+    var messageCol = headers.indexOf('Telegram Message ID');
+    if ([idCol, statusCol, chatCol, messageCol].some(function (i) { return i < 0; })) {
+      return jsonOutput({ ok: false, error: 'approval_columns_missing' });
     }
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return jsonOutput({ ok: false, error: 'lead_not_found' });
+
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][idCol]) !== String(id)) continue;
+
+      var rowNumber = i + 2;
+      var currentStatus = String(rows[i][statusCol] || '');
+      var savedChatId = String(rows[i][chatCol] || '');
+      var savedMessageId = String(rows[i][messageCol] || '');
+
+      if (currentStatus !== 'На рассмотрении') {
+        return jsonOutput({ ok: false, error: 'lead_not_awaiting_approval' });
+      }
+
+      if (savedMessageId || savedChatId) {
+        if (savedMessageId === String(messageId) && savedChatId === String(chatId)) {
+          return jsonOutput({ ok: true, already_saved: true });
+        }
+        return jsonOutput({ ok: false, error: 'approval_message_already_bound' });
+      }
+
+      sheet.getRange(rowNumber, chatCol + 1).setValue(String(chatId));
+      sheet.getRange(rowNumber, messageCol + 1).setValue(String(messageId));
+      SpreadsheetApp.flush();
+      return jsonOutput({ ok: true, id: String(id), message_id: String(messageId) });
+    }
+
+    return jsonOutput({ ok: false, error: 'lead_not_found' });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function updateStatus(id, status, approverId, chatId, messageId) {
+  var allowedStatuses = ['Одобрено', 'Отклонено'];
+  if (!/^\d+$/.test(String(id || '')) ||
+      allowedStatuses.indexOf(String(status || '')) === -1 ||
+      !/^\d+$/.test(String(approverId || '')) ||
+      !/^\d+$/.test(String(chatId || '')) ||
+      !/^\d+$/.test(String(messageId || ''))) {
+    return jsonOutput({ ok: false, error: 'invalid_approval_fields' });
   }
 
-  return jsonOutput({ ok: false, error: 'Строка с ID=' + id + ' не найдена' });
+  var properties = PropertiesService.getScriptProperties();
+  var expectedApproverId = properties.getProperty('TELEGRAM_APPROVER_USER_ID');
+  var expectedChatId = properties.getProperty('TELEGRAM_CHAT_ID');
+  if (!expectedApproverId || !expectedChatId ||
+      String(approverId) !== String(expectedApproverId) ||
+      String(chatId) !== String(expectedChatId)) {
+    return jsonOutput({ ok: false, error: 'approval_actor_not_allowed' });
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = getSheet();
+    var headers = getHeaders(sheet);
+    var idCol = headers.indexOf('ID');
+    var statusCol = headers.indexOf('Статус');
+    var chatCol = headers.indexOf('Telegram Chat ID');
+    var messageCol = headers.indexOf('Telegram Message ID');
+    if ([idCol, statusCol, chatCol, messageCol].some(function (i) { return i < 0; })) {
+      return jsonOutput({ ok: false, error: 'approval_columns_missing' });
+    }
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return jsonOutput({ ok: false, error: 'lead_not_found' });
+
+    var rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][idCol]) !== String(id)) continue;
+
+      var currentStatus = String(rows[i][statusCol] || '');
+      var storedChatId = String(rows[i][chatCol] || '');
+      var storedMessageId = String(rows[i][messageCol] || '');
+
+      if (storedChatId !== String(chatId) || storedMessageId !== String(messageId) ||
+          !storedChatId || !storedMessageId) {
+        return jsonOutput({ ok: false, error: 'approval_card_mismatch' });
+      }
+
+      if (currentStatus === String(status)) {
+        return jsonOutput({ ok: true, already_applied: true });
+      }
+      if (currentStatus !== 'На рассмотрении') {
+        return jsonOutput({ ok: false, error: 'invalid_status_transition' });
+      }
+
+      sheet.getRange(i + 2, statusCol + 1).setValue(String(status));
+      SpreadsheetApp.flush();
+      return jsonOutput({ ok: true, status: String(status) });
+    }
+
+    return jsonOutput({ ok: false, error: 'lead_not_found' });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ---------- вспомогательные функции ----------

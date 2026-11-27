@@ -1,0 +1,52 @@
+name: n8n Approval Security Checks
+
+on:
+  pull_request:
+    paths:
+      - "automation/**"
+      - ".github/workflows/n8n-approval-security.yml"
+  push:
+    branches:
+      - "fix/n8n-approval-security-v1"
+    paths:
+      - "automation/**"
+      - ".github/workflows/n8n-approval-security.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  approval-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [24, 26]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Run Apps Script approval and workflow regression tests
+        run: node automation/test/approval-security.test.js
+
+      - name: Parse all n8n workflow exports
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const paths = [
+            'automation/mini-crm/workflow-1-new-lead.json',
+            'automation/mini-crm/workflow-2-reminders.json',
+            'automation/sales-engine/workflow-3-lead-finder.json',
+            'automation/sales-engine/workflow-4-approval-handler.json',
+          ];
+          for (const path of paths) {
+            JSON.parse(fs.readFileSync(path, 'utf8'));
+            process.stdout.write('Valid JSON: ' + path + '\\n');
+          }
+          NODE

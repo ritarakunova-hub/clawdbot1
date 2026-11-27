@@ -8,13 +8,21 @@
       "name": "Запустить вручную",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [180, 200]
+      "position": [
+        180,
+        200
+      ]
     },
     {
       "parameters": {
         "rule": {
           "interval": [
-            { "field": "days", "daysInterval": 1, "triggerAtHour": 9, "triggerAtMinute": 0 }
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
           ]
         }
       },
@@ -22,15 +30,33 @@
       "name": "По расписанию (можно отключить)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [180, 380]
+      "position": [
+        180,
+        380
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "1", "name": "niche", "value": "стоматология", "type": "string" },
-            { "id": "2", "name": "city", "value": "Москва", "type": "string" },
-            { "id": "3", "name": "limit", "value": 5, "type": "number" }
+            {
+              "id": "1",
+              "name": "niche",
+              "value": "стоматология",
+              "type": "string"
+            },
+            {
+              "id": "2",
+              "name": "city",
+              "value": "Москва",
+              "type": "string"
+            },
+            {
+              "id": "3",
+              "name": "limit",
+              "value": 5,
+              "type": "number"
+            }
           ]
         },
         "options": {}
@@ -39,7 +65,10 @@
       "name": "Параметры поиска (меняйте здесь)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [420, 300]
+      "position": [
+        420,
+        300
+      ]
     },
     {
       "parameters": {
@@ -51,7 +80,10 @@
       "name": "Заметка: проверьте Outscraper",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [640, 60]
+      "position": [
+        640,
+        60
+      ]
     },
     {
       "parameters": {
@@ -59,14 +91,28 @@
         "url": "https://api.app.outscraper.com/maps/search-v3",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "X-API-KEY", "value": "YOUR_OUTSCRAPER_API_KEY" }]
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "YOUR_OUTSCRAPER_API_KEY"
+            }
+          ]
         },
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "query", "value": "={{ $json.niche + ' ' + $json.city }}" },
-            { "name": "limit", "value": "={{ $json.limit }}" },
-            { "name": "async", "value": "false" }
+            {
+              "name": "query",
+              "value": "={{ $json.niche + ' ' + $json.city }}"
+            },
+            {
+              "name": "limit",
+              "value": "={{ $json.limit }}"
+            },
+            {
+              "name": "async",
+              "value": "false"
+            }
           ]
         },
         "options": {}
@@ -75,7 +121,10 @@
       "name": "Найти компании (Outscraper)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [640, 300],
+      "position": [
+        640,
+        300
+      ],
       "onError": "continueErrorOutput",
       "continueOnFail": true
     },
@@ -89,9 +138,15 @@
       "name": "Ошибка: поиск компаний",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [860, 460],
+      "position": [
+        860,
+        460
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     },
     {
@@ -102,15 +157,24 @@
       "name": "Подготовить список компаний",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [860, 300]
+      "position": [
+        860,
+        300
+      ]
     },
     {
-      "parameters": { "batchSize": 1, "options": {} },
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
       "id": "split-in-batches-node",
       "name": "По одной компании",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [1080, 300]
+      "position": [
+        1080,
+        300
+      ]
     },
     {
       "parameters": {
@@ -122,7 +186,10 @@
       "name": "Заметка: выходы Loop/Done",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [1080, 60]
+      "position": [
+        1080,
+        60
+      ]
     },
     {
       "parameters": {
@@ -131,21 +198,41 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "action", "value": "checkExists" },
-            { "name": "company", "value": "={{ $json.company }}" },
-            { "name": "site", "value": "={{ $json.site }}" },
-            { "name": "token", "value": "YOUR_WEBHOOK_TOKEN" }
+            {
+              "name": "action",
+              "value": "checkExists"
+            },
+            {
+              "name": "company",
+              "value": "={{ $json.company }}"
+            },
+            {
+              "name": "site",
+              "value": "={{ $json.site }}"
+            },
+            {
+              "name": "token",
+              "value": "YOUR_WEBHOOK_TOKEN"
+            }
           ]
         },
         "options": {
-          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
         }
       },
       "id": "check-exists-node",
       "name": "Проверить дубликат",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1300, 300],
+      "position": [
+        1300,
+        300
+      ],
       "onError": "continueErrorOutput",
       "continueOnFail": true
     },
@@ -159,20 +246,33 @@
       "name": "Ошибка: проверка дублей",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1300, 480],
+      "position": [
+        1300,
+        480
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
           "conditions": [
             {
               "leftValue": "={{ $json.exists }}",
               "rightValue": false,
-              "operator": { "type": "boolean", "operation": "equals" }
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -183,7 +283,10 @@
       "name": "Новая компания?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1520, 300]
+      "position": [
+        1520,
+        300
+      ]
     },
     {
       "parameters": {
@@ -200,11 +303,17 @@
       "name": "GigaChat: оценить компанию",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1740, 220],
+      "position": [
+        1740,
+        220
+      ],
       "onError": "continueErrorOutput",
       "continueOnFail": true,
       "credentials": {
-        "httpBearerAuth": { "id": "YOUR_GIGACHAT_CREDENTIAL_ID", "name": "GigaChat" }
+        "httpBearerAuth": {
+          "id": "YOUR_GIGACHAT_CREDENTIAL_ID",
+          "name": "GigaChat"
+        }
       }
     },
     {
@@ -217,7 +326,10 @@
       "name": "Заметка: GigaChat credential и TLS",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [1740, 0]
+      "position": [
+        1740,
+        0
+      ]
     },
     {
       "parameters": {
@@ -229,9 +341,15 @@
       "name": "Ошибка: GigaChat",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1740, 460],
+      "position": [
+        1740,
+        460
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     },
     {
@@ -242,7 +360,10 @@
       "name": "Разобрать ответ GigaChat",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1960, 220]
+      "position": [
+        1960,
+        220
+      ]
     },
     {
       "parameters": {
@@ -252,14 +373,22 @@
         "specifyBody": "json",
         "jsonBody": "={{ { token: 'YOUR_WEBHOOK_TOKEN', source: 'sales-engine', company: $json.company, site: $json.site, industry: $json.industry, score: $json.score, hypothesis: $json.hypothesis, solution: $json.solution } }}",
         "options": {
-          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } }
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
         }
       },
       "id": "add-lead-node",
       "name": "Записать лид в таблицу",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2180, 220],
+      "position": [
+        2180,
+        220
+      ],
       "onError": "continueErrorOutput",
       "continueOnFail": true
     },
@@ -273,15 +402,104 @@
       "name": "Ошибка: запись в таблицу",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2180, 460],
+      "position": [
+        2180,
+        460
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     },
     {
       "parameters": {
         "chatId": "YOUR_TELEGRAM_CHAT_ID",
         "text": "=🎯 Новый лид (Score: {{ $('Разобрать ответ GigaChat').item.json.score }})\n\nКомпания: {{ $('Разобрать ответ GigaChat').item.json.company }}\nОтрасль: {{ $('Разобрать ответ GigaChat').item.json.industry }}\nСайт: {{ $('Разобрать ответ GigaChat').item.json.site }}\n\nФакты: {{ $('Разобрать ответ GigaChat').item.json.facts }}\nПочему такой score: {{ $('Разобрать ответ GigaChat').item.json.scoreReason }}\nГипотеза: {{ $('Разобрать ответ GigaChat').item.json.hypothesis }}\nЧто предложить: {{ $('Разобрать ответ GigaChat').item.json.solution }}\nЗацепка: {{ $('Разобрать ответ GigaChat').item.json.hook }}\n\nID в таблице: {{ $json.id }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-card-node",
+      "name": "Отправить карточку лида",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2400,
+        220
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_APPS_SCRIPT_URL",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { action: 'saveApprovalMessage', token: 'YOUR_WEBHOOK_TOKEN', id: $('Записать лид в таблицу').item.json.id, chatId: $('Отправить карточку лида').item.json.result.chat.id, messageId: $('Отправить карточку лида').item.json.result.message_id } }}",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
+        }
+      },
+      "id": "save-approval-message-node",
+      "name": "Сохранить ID карточки",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2620,
+        220
+      ],
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "approval-message-saved-if",
+      "name": "ID карточки сохранён?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2840,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Отправить карточку лида').item.json.result.chat.id }}",
+        "messageId": "={{ $('Отправить карточку лида').item.json.result.message_id }}",
+        "text": "=🎯 Новый лид (Score: {{ $('Разобрать ответ GigaChat').item.json.score }})\n\nКомпания: {{ $('Разобрать ответ GigaChat').item.json.company }}\nОтрасль: {{ $('Разобрать ответ GigaChat').item.json.industry }}\nСайт: {{ $('Разобрать ответ GigaChat').item.json.site }}\n\nФакты: {{ $('Разобрать ответ GigaChat').item.json.facts }}\nПочему такой score: {{ $('Разобрать ответ GigaChat').item.json.scoreReason }}\nГипотеза: {{ $('Разобрать ответ GigaChat').item.json.hypothesis }}\nЧто предложить: {{ $('Разобрать ответ GigaChat').item.json.solution }}\nЗацепка: {{ $('Разобрать ответ GigaChat').item.json.hook }}\n\nID в таблице: {{ $('Записать лид в таблицу').item.json.id }}",
         "replyMarkup": "inlineKeyboard",
         "inlineKeyboard": {
           "rows": [
@@ -290,11 +508,15 @@
                 "buttons": [
                   {
                     "text": "✅ Одобрить",
-                    "additionalFields": { "callback_data": "=approve:{{ $json.id }}" }
+                    "additionalFields": {
+                      "callback_data": "=approve:{{ $('Записать лид в таблицу').item.json.id }}"
+                    }
                   },
                   {
                     "text": "❌ Отклонить",
-                    "additionalFields": { "callback_data": "=reject:{{ $json.id }}" }
+                    "additionalFields": {
+                      "callback_data": "=reject:{{ $('Записать лид в таблицу').item.json.id }}"
+                    }
                   }
                 ]
               }
@@ -303,79 +525,318 @@
         },
         "additionalFields": {}
       },
-      "id": "telegram-card-node",
-      "name": "Отправить карточку лида",
+      "id": "attach-approval-buttons-node",
+      "name": "Добавить кнопки после сохранения",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [2400, 220],
+      "position": [
+        3060,
+        100
+      ],
       "credentials": {
-        "telegramApi": { "id": "YOUR_TELEGRAM_CREDENTIAL_ID", "name": "Telegram account" }
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Карточка лида создана или отправлена, но не завершена. Автоматически не повторяйте отправку. Проверьте таблицу и историю Telegram; при необходимости восстановите вручную. Лид ID: {{ $('Записать лид в таблицу').item.json.id }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-approval-setup-error",
+      "name": "Ошибка подготовки карточки",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3060,
+        420
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
       }
     }
   ],
   "connections": {
     "Запустить вручную": {
-      "main": [[{ "node": "Параметры поиска (меняйте здесь)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Параметры поиска (меняйте здесь)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "По расписанию (можно отключить)": {
-      "main": [[{ "node": "Параметры поиска (меняйте здесь)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Параметры поиска (меняйте здесь)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Параметры поиска (меняйте здесь)": {
-      "main": [[{ "node": "Найти компании (Outscraper)", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Найти компании (Outscraper)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Найти компании (Outscraper)": {
       "main": [
-        [{ "node": "Подготовить список компаний", "type": "main", "index": 0 }],
-        [{ "node": "Ошибка: поиск компаний", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Подготовить список компаний",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: поиск компаний",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Подготовить список компаний": {
-      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "По одной компании": {
       "main": [
-        [{ "node": "Проверить дубликат", "type": "main", "index": 0 }],
+        [
+          {
+            "node": "Проверить дубликат",
+            "type": "main",
+            "index": 0
+          }
+        ],
         []
       ]
     },
     "Проверить дубликат": {
       "main": [
-        [{ "node": "Новая компания?", "type": "main", "index": 0 }],
-        [{ "node": "Ошибка: проверка дублей", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Новая компания?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: проверка дублей",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Ошибка: проверка дублей": {
-      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Новая компания?": {
       "main": [
-        [{ "node": "GigaChat: оценить компанию", "type": "main", "index": 0 }],
-        [{ "node": "По одной компании", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "GigaChat: оценить компанию",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "GigaChat: оценить компанию": {
       "main": [
-        [{ "node": "Разобрать ответ GigaChat", "type": "main", "index": 0 }],
-        [{ "node": "Ошибка: GigaChat", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Разобрать ответ GigaChat",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: GigaChat",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Ошибка: GigaChat": {
-      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Разобрать ответ GigaChat": {
-      "main": [[{ "node": "Записать лид в таблицу", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Записать лид в таблицу",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Записать лид в таблицу": {
       "main": [
-        [{ "node": "Отправить карточку лида", "type": "main", "index": 0 }],
-        [{ "node": "Ошибка: запись в таблицу", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Отправить карточку лида",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: запись в таблицу",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Ошибка: запись в таблицу": {
-      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Отправить карточку лида": {
-      "main": [[{ "node": "По одной компании", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Сохранить ID карточки",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка подготовки карточки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранить ID карточки": {
+      "main": [
+        [
+          {
+            "node": "ID карточки сохранён?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка подготовки карточки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ID карточки сохранён?": {
+      "main": [
+        [
+          {
+            "node": "Добавить кнопки после сохранения",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка подготовки карточки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Добавить кнопки после сохранения": {
+      "main": [
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка подготовки карточки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ошибка подготовки карточки": {
+      "main": [
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
