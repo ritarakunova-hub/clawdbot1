@@ -731,6 +731,28 @@ function testWorkflow3StoresCardBeforeButtons() {
   assert.equal(workflow3.connections['ID карточки сохранён?'].main[0][0].node, 'Добавить кнопки после сохранения');
 }
 
+function testAllExternalHttpRequestsHaveTimeouts() {
+  const workflowPaths = [
+    '../mini-crm/workflow-1-new-lead.json',
+    '../mini-crm/workflow-2-reminders.json',
+    '../sales-engine/workflow-3-lead-finder.json',
+    '../sales-engine/workflow-4-approval-handler.json'
+  ];
+
+  for (const relative of workflowPaths) {
+    const workflow = JSON.parse(fs.readFileSync(path.join(__dirname, relative), 'utf8'));
+    const httpNodes = workflow.nodes.filter((node) => node.type === 'n8n-nodes-base.httpRequest');
+    for (const node of httpNodes) {
+      const timeout = node.parameters && node.parameters.options && node.parameters.options.timeout;
+      assert.ok(Number.isInteger(timeout) && timeout > 0 && timeout <= 60000,
+        workflow.name + ': missing or unbounded HTTP timeout on ' + node.name);
+    }
+  }
+
+  assert.equal(workflow3.nodes.find((node) => node.id === 'outscraper-node').parameters.options.timeout, 30000);
+  assert.equal(workflow3.nodes.find((node) => node.id === 'gigachat-node').parameters.options.timeout, 45000);
+}
+
 function testAllWorkflowExportsAreValidJson() {
   for (const relative of [
     '../mini-crm/workflow-1-new-lead.json',
@@ -758,5 +780,6 @@ testAllWorkflowExportsAreValidJson();
 
 testGigaChatOutputValidationBeforeLeadCreation();
 testGigaChatPromptInjectionAndExternalTimeouts();
+testAllExternalHttpRequestsHaveTimeouts();
 
 console.log('All n8n approval security tests passed.');
