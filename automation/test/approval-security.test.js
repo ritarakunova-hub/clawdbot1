@@ -134,7 +134,7 @@ function testApprovalMessageBinding() {
   const invalidFields = output(h.context.saveApprovalMessage('42', '123456', 'not-a-message-id'));
   assert.equal(invalidFields.ok, false);
   assert.equal(invalidFields.error, 'invalid_approval_message_fields');
-  assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 2 });
+  assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 3 });
 }
 
 function testOwnerAndExactCardAuthorization() {
