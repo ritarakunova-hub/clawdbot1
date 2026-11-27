@@ -6,9 +6,10 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "YOUR_RANDOM_WEBHOOK_PATH",
-        "responseMode": "onReceived",
-        "responseData": "{\"ok\":true}",
-        "options": {}
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
       },
       "id": "webhook-node",
       "name": "Webhook (от Netlify)",
@@ -22,10 +23,10 @@
     },
     {
       "parameters": {
-        "jsCode": "// Netlify Forms (исходящий webhook) присылает заявку в обёртке payload:\n// { payload: { form_name, data: { name, contact, message, ... } }, site_url, created_at }\n// Этот формат проверен на реальных заявках сайта (папка mini-crm/ в\n// репозитории сайта, src/lead.js). На всякий случай понимаем и данные без\n// обёртки — прямо в теле или в body.data.\nconst raw = $input.first().json.body || $input.first().json;\nconst payload = raw.payload || raw;\nconst data = payload.data || payload;\n\nfunction pick(...keys) {\n  for (const k of keys) {\n    const v = data[k];\n    if (v !== undefined && v !== null && String(v).trim() !== '') {\n      return String(v).trim();\n    }\n  }\n  return '';\n}\n\nconst name = pick('name', 'Name', 'имя', 'Имя', 'full_name', 'fullname') || '—';\nconst company = pick('company', 'Company', 'компания', 'Компания', 'organization') || '—';\nconst email = pick('email', 'Email', 'почта', 'Почта');\nconst phone = pick('phone', 'Phone', 'телефон', 'Телефон', 'tel');\nconst message = pick('message', 'Message', 'сообщение', 'Сообщение', 'comment', 'комментарий', 'текст');\n// Форма сайта (taina-diagnostic) спрашивает способ связи одним полем\n// contact: телефон, почта или Telegram одной строкой.\nconst contact = pick('contact', 'Contact', 'контакт', 'Контакт');\n\nconst channelParts = [];\nif (email) channelParts.push('Email: ' + email);\nif (phone) channelParts.push('Тел.: ' + phone);\nif (contact && !email && !phone) {\n  if (/^@|t\\.me\\//i.test(contact)) channelParts.push('Telegram: ' + contact);\n  else if (contact.includes('@')) channelParts.push('Email: ' + contact);\n  else channelParts.push('Контакт: ' + contact);\n}\nconst channel = channelParts.length ? channelParts.join(', ') : '—';\n\nreturn [{\n  json: {\n    token: 'YOUR_WEBHOOK_TOKEN',\n    source: 'netlify',\n    name,\n    company,\n    channel,\n    message: message.slice(0, 300)\n  }\n}];"
+        "jsCode": "// Keep the original raw request body: Netlify signs the exact JSON bytes.\nconst item = $input.first();\nconst headers = item.json && item.json.headers ? item.json.headers : {};\nconst signature = headers['x-webhook-signature'] || headers['X-Webhook-Signature'] || '';\nconst rawBodyBase64 = item.binary && item.binary.data && item.binary.data.data\n  ? item.binary.data.data\n  : '';\n\nreturn [{\n  json: {\n    action: 'receiveSignedNetlifyLead',\n    token: 'YOUR_WEBHOOK_TOKEN',\n    signature,\n    rawBodyBase64\n  }\n}];"
       },
       "id": "normalize-node",
-      "name": "Привести поля к простому виду",
+      "name": "Подготовить подписанную заявку",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -50,7 +51,7 @@
         }
       },
       "id": "sheet-node",
-      "name": "Записать в Google Таблицу",
+      "name": "Проверить Netlify JWS и сохранить заявку",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -63,16 +64,16 @@
     {
       "parameters": {
         "chatId": "YOUR_TELEGRAM_CHAT_ID",
-        "text": "=🆕 Новая заявка с сайта TAINA Studio\n\nИмя: {{ $('Привести поля к простому виду').item.json.name }}\nКомпания: {{ $('Привести поля к простому виду').item.json.company }}\nСвязь: {{ $('Привести поля к простому виду').item.json.channel }}\nСообщение: {{ $('Привести поля к простому виду').item.json.message }}\n\nТаблица: YOUR_SHEET_URL",
+        "text": "=🆕 Новая заявка TAINA сохранена в таблицу.\n\nID строки: {{ $('Проверить Netlify JWS и сохранить заявку').item.json.id }}\nФорма: taina-diagnostic\n\nКонтактные данные и текст обращения доступны только в рабочей таблице.",
         "additionalFields": {}
       },
       "id": "telegram-ok-node",
-      "name": "Уведомление: заявка записана",
+      "name": "Уведомление: заявка записана (без PII)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        900,
-        200
+        1540,
+        120
       ],
       "credentials": {
         "telegramApi": {
@@ -84,16 +85,16 @@
     {
       "parameters": {
         "chatId": "YOUR_TELEGRAM_CHAT_ID",
-        "text": "=⚠️ НЕ ЗАПИСАНО В ТАБЛИЦУ (проверьте Apps Script URL/токен)\n\nИмя: {{ $('Привести поля к простому виду').item.json.name }}\nКомпания: {{ $('Привести поля к простому виду').item.json.company }}\nСвязь: {{ $('Привести поля к простому виду').item.json.channel }}\nСообщение: {{ $('Привести поля к простому виду').item.json.message }}\n\nОшибка: {{ $json.error?.message || $json.error || 'см. Executions в n8n' }}",
+        "text": "=⚠️ Входящая заявка не принята или не сохранена. Код: {{ $('Проверить Netlify JWS и сохранить заявку').item.json.error || 'processing_error' }}. Проверьте execution в n8n; персональные данные не пересылаются в Telegram.",
         "additionalFields": {}
       },
       "id": "telegram-error-node",
-      "name": "Уведомление: ошибка записи",
+      "name": "Уведомление: отказ / ошибка (без PII)",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        900,
-        420
+        1540,
+        620
       ],
       "credentials": {
         "telegramApi": {
@@ -101,6 +102,184 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "accepted-if-node",
+      "name": "Заявка принята?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.duplicate === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "duplicate-if-node",
+      "name": "Повторная доставка?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error === 'invalid_netlify_signature' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "signature-error-if-node",
+      "name": "Подпись Netlify неверна?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":true}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-new-node",
+      "name": "Ответить Netlify: заявка сохранена",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1360,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":true,\"duplicate\":true}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-duplicate-node",
+      "name": "Ответить Netlify: дубль уже обработан",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1360,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":false,\"error\":\"invalid_signature\"}",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "respond-unauthorized-node",
+      "name": "Ответить Netlify: подпись неверна",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1360,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":false,\"error\":\"submission_rejected\"}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "respond-rejected-node",
+      "name": "Ответить Netlify: заявка отклонена",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1360,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"ok\":false,\"error\":\"processing_unavailable\"}",
+        "options": {
+          "responseCode": 503
+        }
+      },
+      "id": "respond-unavailable-node",
+      "name": "Ответить Netlify: сервис недоступен",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        820
+      ]
     }
   ],
   "connections": {
@@ -108,36 +287,139 @@
       "main": [
         [
           {
-            "node": "Привести поля к простому виду",
+            "node": "Подготовить подписанную заявку",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Привести поля к простому виду": {
+    "Подготовить подписанную заявку": {
       "main": [
         [
           {
-            "node": "Записать в Google Таблицу",
+            "node": "Проверить Netlify JWS и сохранить заявку",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Записать в Google Таблицу": {
+    "Проверить Netlify JWS и сохранить заявку": {
       "main": [
         [
           {
-            "node": "Уведомление: заявка записана",
+            "node": "Заявка принята?",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Уведомление: ошибка записи",
+            "node": "Ответить Netlify: сервис недоступен",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Заявка принята?": {
+      "main": [
+        [
+          {
+            "node": "Повторная доставка?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Подпись Netlify неверна?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Повторная доставка?": {
+      "main": [
+        [
+          {
+            "node": "Ответить Netlify: дубль уже обработан",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ответить Netlify: заявка сохранена",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Подпись Netlify неверна?": {
+      "main": [
+        [
+          {
+            "node": "Ответить Netlify: подпись неверна",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ответить Netlify: заявка отклонена",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответить Netlify: заявка сохранена": {
+      "main": [
+        [
+          {
+            "node": "Уведомление: заявка записана (без PII)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответить Netlify: дубль уже обработан": {
+      "main": [
+        []
+      ]
+    },
+    "Ответить Netlify: подпись неверна": {
+      "main": [
+        [
+          {
+            "node": "Уведомление: отказ / ошибка (без PII)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответить Netlify: заявка отклонена": {
+      "main": [
+        [
+          {
+            "node": "Уведомление: отказ / ошибка (без PII)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответить Netlify: сервис недоступен": {
+      "main": [
+        [
+          {
+            "node": "Уведомление: отказ / ошибка (без PII)",
             "type": "main",
             "index": 0
           }
