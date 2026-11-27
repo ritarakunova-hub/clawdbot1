@@ -361,20 +361,61 @@ function testAllowedTransitionAndIdempotency() {
   assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 4 });
 }
 
-function testGetCannotMutateStatus() {
+function testGetRejectsAllActionsAndPostCarriesToken() {
   const h = makeHarness();
   assert.equal(output(h.context.saveApprovalMessage('42', '123456', '9001')).ok, true);
-  const result = output(h.context.doGet({
+
+  const getResult = output(h.context.doGet({
     parameter: {
       action: 'updateStatus',
-      token: 'synthetic-test-token',
+      token: 'should-not-be-read-from-query',
       id: '42',
       status: 'Одобрено'
     }
   }));
-  assert.equal(result.ok, false);
-  assert.equal(result.error, 'status_update_requires_post');
+  assert.equal(getResult.ok, false);
+  assert.equal(getResult.error, 'get_not_allowed_use_post_body');
   assert.equal(h.rows[1][1], 'На рассмотрении');
+
+  const overdue = output(h.context.doPost({
+    postData: {
+      contents: JSON.stringify({ token: 'synthetic-test-token', action: 'getOverdue' })
+    }
+  }));
+  assert.equal(overdue.ok, true);
+  assert.equal(overdue.count, 0);
+
+  const exists = output(h.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'synthetic-test-token',
+        action: 'checkExists',
+        company: 'Missing synthetic company',
+        site: 'https://example.test'
+      })
+    }
+  }));
+  assert.equal(exists.ok, true);
+  assert.equal(exists.exists, false);
+}
+
+function testWorkflow2And3UsePostBodies() {
+  const workflow2 = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'mini-crm', 'workflow-2-reminders.json'), 'utf8'
+  ));
+  const overdueNode = workflow2.nodes.find((node) => node.id === 'overdue-node');
+  assert.equal(overdueNode.parameters.method, 'POST');
+  assert.equal(overdueNode.parameters.sendBody, true);
+  assert.ok(overdueNode.parameters.jsonBody.includes('getOverdue'));
+  assert.ok(overdueNode.parameters.jsonBody.includes('YOUR_WEBHOOK_TOKEN'));
+  assert.equal(overdueNode.parameters.sendQuery, undefined);
+
+  const duplicateNode = workflow3.nodes.find((node) => node.id === 'check-exists-node');
+  assert.equal(duplicateNode.parameters.method, 'POST');
+  assert.equal(duplicateNode.parameters.sendBody, true);
+  assert.ok(duplicateNode.parameters.jsonBody.includes('checkExists'));
+  assert.ok(duplicateNode.parameters.jsonBody.includes('YOUR_WEBHOOK_TOKEN'));
+  assert.equal(duplicateNode.parameters.sendQuery, undefined);
 }
 
 function testWorkflow4ValidationAndRouting() {
@@ -479,7 +520,8 @@ testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram();
 testApprovalMessageBinding();
 testOwnerAndExactCardAuthorization();
 testAllowedTransitionAndIdempotency();
-testGetCannotMutateStatus();
+testGetRejectsAllActionsAndPostCarriesToken();
+testWorkflow2And3UsePostBodies();
 testWorkflow4ValidationAndRouting();
 testWorkflow3StoresCardBeforeButtons();
 testAllWorkflowExportsAreValidJson();
