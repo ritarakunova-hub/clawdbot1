@@ -193,29 +193,11 @@
     },
     {
       "parameters": {
-        "method": "GET",
+        "method": "POST",
         "url": "YOUR_APPS_SCRIPT_URL",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "action",
-              "value": "checkExists"
-            },
-            {
-              "name": "company",
-              "value": "={{ $json.company }}"
-            },
-            {
-              "name": "site",
-              "value": "={{ $json.site }}"
-            },
-            {
-              "name": "token",
-              "value": "YOUR_WEBHOOK_TOKEN"
-            }
-          ]
-        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { action: 'checkExists', token: 'YOUR_WEBHOOK_TOKEN', company: $json.company, site: $json.site } }}",
         "options": {
           "redirect": {
             "redirect": {
