@@ -23,7 +23,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Keep the original raw request body: Netlify signs the exact JSON bytes.\nconst item = $input.first();\nconst headers = item.json && item.json.headers ? item.json.headers : {};\nconst signature = headers['x-webhook-signature'] || headers['X-Webhook-Signature'] || '';\nconst rawBodyBase64 = item.binary && item.binary.data && item.binary.data.data\n  ? item.binary.data.data\n  : '';\n\nreturn [{\n  json: {\n    action: 'receiveSignedNetlifyLead',\n    token: 'YOUR_WEBHOOK_TOKEN',\n    signature,\n    rawBodyBase64\n  }\n}];"
+        "jsCode": "// Read the exact raw request bytes through n8n's binary storage helper.\nconst item = $input.first();\nconst headers = item.json && item.json.headers ? item.json.headers : {};\nconst signature = headers['x-webhook-signature'] || headers['X-Webhook-Signature'] || '';\nconst rawBodyBuffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n\nreturn [{\n  json: {\n    action: 'receiveSignedNetlifyLead',\n    token: 'YOUR_WEBHOOK_TOKEN',\n    signature,\n    rawBodyBase64: rawBodyBuffer.toString('base64')\n  }\n}];"
       },
       "id": "normalize-node",
       "name": "Подготовить подписанную заявку",
