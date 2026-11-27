@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - "fix/n8n-approval-security-v1"
+      - "fix/n8n-netlify-intake-signature-v1"
     paths:
       - "automation/**"
       - ".github/workflows/n8n-approval-security.yml"
@@ -34,6 +35,9 @@ jobs:
 
       - name: Run Apps Script approval and workflow regression tests
         run: node automation/test/approval-security.test.js
+
+      - name: Syntax check safe sample sender
+        run: node --check automation/test/send-signed-sample.js
 
       - name: Parse all n8n workflow exports
         run: |
