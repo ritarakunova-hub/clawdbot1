@@ -295,6 +295,20 @@ function testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram() {
   assert.equal(webhook.connections['Проверить Netlify JWS и сохранить заявку'].main[0][0].node, 'Заявка принята?');
 }
 
+function testInternalTokenValidationFailsClosed() {
+  const h = makeHarness();
+  assert.equal(h.context.checkToken('synthetic-test-token'), true);
+  assert.equal(h.context.checkToken('wrong-token'), false);
+  assert.equal(h.context.checkToken(''), false);
+  assert.equal(h.context.checkToken(null), false);
+  assert.equal(h.context.checkToken(12345), false);
+  assert.equal(h.context.checkToken('x'.repeat(4097)), false);
+
+  const missingSecret = makeHarness();
+  delete missingSecret.properties.WEBHOOK_TOKEN;
+  assert.equal(missingSecret.context.checkToken('synthetic-test-token'), false);
+}
+
 function testApprovalMessageBinding() {
   const h = makeHarness();
   const save = output(h.context.saveApprovalMessage('42', '123456', '9001'));
@@ -708,6 +722,7 @@ function testAllWorkflowExportsAreValidJson() {
 testNetlifyJwsAndSignedIntake();
 testSalesEngineAtomicDedupeAndScoreValidation();
 testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram();
+testInternalTokenValidationFailsClosed();
 testApprovalMessageBinding();
 testOwnerAndExactCardAuthorization();
 testAllowedTransitionAndIdempotency();
