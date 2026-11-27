@@ -440,6 +440,24 @@ function testSalesEngineAtomicDedupeAndScoreValidation() {
   assert.equal(invalidNaNScore.error, 'invalid_score');
   assert.equal(h.rows.length, 2);
 
+  const stringScore = send({
+    company: 'String Score Clinic',
+    site: 'https://string-score.example',
+    score: '72'
+  });
+  assert.equal(stringScore.ok, false);
+  assert.equal(stringScore.error, 'invalid_score');
+  assert.equal(h.rows.length, 2);
+
+  const nullScore = send({
+    company: 'Null Score Clinic',
+    site: 'https://null-score.example',
+    score: null
+  });
+  assert.equal(nullScore.ok, false);
+  assert.equal(nullScore.error, 'invalid_score');
+  assert.equal(h.rows.length, 2);
+
   assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 3 });
 }
 
@@ -579,14 +597,19 @@ function testGigaChatPromptInjectionAndExternalTimeouts() {
   const prepared = prepareCompanies({
     first: () => ({
       json: {
-        data: [[{
-          name: untrustedName,
-          website: 'https://example.test/' + 'x'.repeat(600),
-          category: 'Dentistry',
-          full_address: 'Synthetic address',
-          phone: '+1 555 0100',
-          contact: 'synthetic@example.test'
-        }]]
+        data: [[
+          null,
+          'not-an-object',
+          [],
+          {
+            name: untrustedName,
+            website: 'https://example.test/' + 'x'.repeat(600),
+            category: 'Dentistry',
+            full_address: 'Synthetic address',
+            phone: '+1 555 0100',
+            contact: 'synthetic@example.test'
+          }
+        ]]
       }
     })
   });
