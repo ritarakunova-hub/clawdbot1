@@ -23,7 +23,7 @@
  *   Канал связи, Score (0-100), Возможная проблема (гипотеза), Что предложить,
  *   Статус, Дата первого контакта, Дата последнего контакта, Следующее действие,
  *   Дата следующего действия, Ответ клиента, Продукт, Сумма (₽), Комментарий,
- *   Telegram Chat ID, Telegram Message ID, Netlify Submission ID
+ *   Telegram Chat ID, Telegram Message ID, Согласие на обработку ПДн, Netlify Submission ID
  */
 
 var TIMEZONE = 'Europe/Moscow';
@@ -223,6 +223,7 @@ function receiveSignedNetlifyLead(request) {
     setCol(row, headers, 'Следующее действие', 'Ответить на заявку');
     setCol(row, headers, 'Дата следующего действия', addDays(createdAt, 1));
     setCol(row, headers, 'Комментарий', safeSheetText(message));
+    setCol(row, headers, 'Согласие на обработку ПДн', 'yes');
     setCol(row, headers, 'Netlify Submission ID', submissionId);
 
     sheet.appendRow(row);
