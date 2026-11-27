@@ -347,29 +347,88 @@ function addNetlifyLead(payload) {
 }
 
 function addSalesEngineLead(payload) {
-  var sheet = getSheet();
-  var headers = getHeaders(sheet);
-  var id = sheet.getLastRow();
+  var company = String(payload.company || '').trim();
+  var site = String(payload.site || '').trim();
+  var industry = String(payload.industry || '').trim();
+  var hypothesis = String(payload.hypothesis || '').trim();
+  var solution = String(payload.solution || '').trim();
+  var score = Number(payload.score);
 
-  var row = new Array(headers.length).fill('');
-  setCol(row, headers, 'ID', id);
-  setCol(row, headers, 'Дата добавления', new Date());
-  setCol(row, headers, 'Компания', payload.company || '—');
-  setCol(row, headers, 'Сайт', payload.site || '');
-  setCol(row, headers, 'Отрасль', payload.industry || '');
-  setCol(row, headers, 'Источник', 'Google Maps');
-  setCol(row, headers, 'Score (0-100)', payload.score !== undefined ? payload.score : '');
-  setCol(row, headers, 'Возможная проблема (гипотеза)', payload.hypothesis || '');
-  setCol(row, headers, 'Что предложить', payload.solution || '');
-  setCol(row, headers, 'Статус', 'На рассмотрении');
-  setCol(row, headers, 'Telegram Chat ID', '');
-  setCol(row, headers, 'Telegram Message ID', '');
+  if (!company || company === '—' || company.length > 200) {
+    return jsonOutput({ ok: false, error: 'invalid_company' });
+  }
+  if (site.length > 500 || industry.length > 160 ||
+      hypothesis.length > 2000 || solution.length > 2000) {
+    return jsonOutput({ ok: false, error: 'sales_lead_field_too_long' });
+  }
+  if (!Number.isInteger(score) || score < 0 || score > 100) {
+    return jsonOutput({ ok: false, error: 'invalid_score' });
+  }
 
-  sheet.appendRow(row);
-  return jsonOutput({ ok: true, id: id, row: sheet.getLastRow() });
+  // The preliminary n8n check is only a filter. This lock-protected check
+  // is the authoritative uniqueness gate for concurrent workflow executions.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = getSheet();
+    var headers = getHeaders(sheet);
+    var companyCol = headers.indexOf('Компания');
+    var siteCol = headers.indexOf('Сайт');
+    var idCol = headers.indexOf('ID');
+    if (companyCol < 0 || idCol < 0) {
+      return jsonOutput({ ok: false, error: 'sales_lead_columns_missing' });
+    }
+
+    var companyNorm = normalizeText(company);
+    var siteNorm = normalizeSite(site);
+    var lastRow = sheet.getLastRow();
+
+    if (lastRow > 1) {
+      var existingRows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+      for (var i = 0; i < existingRows.length; i++) {
+        var existingCompany = companyCol >= 0
+          ? normalizeText(existingRows[i][companyCol])
+          : '';
+        var existingSite = siteCol >= 0
+          ? normalizeSite(existingRows[i][siteCol])
+          : '';
+
+        if ((companyNorm && existingCompany === companyNorm) ||
+            (siteNorm && existingSite === siteNorm)) {
+          return jsonOutput({
+            ok: true,
+            duplicate: true,
+            id: String(existingRows[i][idCol]),
+            matched_by: companyNorm && existingCompany === companyNorm ? 'company' : 'site'
+          });
+        }
+      }
+    }
+
+    var id = sheet.getLastRow();
+    var row = new Array(headers.length).fill('');
+    setCol(row, headers, 'ID', id);
+    setCol(row, headers, 'Дата добавления', new Date());
+    setCol(row, headers, 'Компания', safeSheetText(company));
+    setCol(row, headers, 'Сайт', safeSheetText(site));
+    setCol(row, headers, 'Отрасль', safeSheetText(industry));
+    setCol(row, headers, 'Источник', 'Google Maps');
+    setCol(row, headers, 'Score (0-100)', score);
+    setCol(row, headers, 'Возможная проблема (гипотеза)', safeSheetText(hypothesis));
+    setCol(row, headers, 'Что предложить', safeSheetText(solution));
+    setCol(row, headers, 'Статус', 'На рассмотрении');
+    setCol(row, headers, 'Telegram Chat ID', '');
+    setCol(row, headers, 'Telegram Message ID', '');
+
+    sheet.appendRow(row);
+    SpreadsheetApp.flush();
+    return jsonOutput({ ok: true, duplicate: false, id: String(id), row: sheet.getLastRow() });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-// ---------- doGet: чтение и обновление ----------
+// ---------- read helpers (invoked through authenticated POST only) ----------
 
 function getOverdue() {
   var sheet = getSheet();
