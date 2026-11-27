@@ -336,7 +336,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const item = $input.first().json;\nconst content = item.choices?.[0]?.message?.content || item.content || '';\nconst company = $('По одной компании').item.json;\n\nfunction grab(label, text) {\n  const re = new RegExp(label + '\\\\s*:\\\\s*([\\\\s\\\\S]*?)(?=\\\\n[А-ЯЁA-Z][А-ЯЁA-Z \\\\(\\\\)0-9]*:|$)', 'i');\n  const m = text.match(re);\n  return m ? m[1].trim() : '';\n}\n\nconst scoreRaw = grab('SCORE', content).replace(/[^0-9]/g, '');\nconst score = scoreRaw ? parseInt(scoreRaw, 10) : '';\n\nreturn [{\n  json: {\n    company: grab('КОМПАНИЯ', content) || company.company,\n    site: company.site,\n    industry: grab('ОТРАСЛЬ', content) || company.industry,\n    facts: grab('ФАКТЫ', content),\n    score,\n    scoreReason: grab('ПОЧЕМУ ТАКОЙ SCORE', content),\n    hypothesis: grab('ГИПОТЕЗА \\\\(ПРОБЛЕМА\\\\)', content) || grab('ГИПОТЕЗА', content),\n    solution: grab('ВОЗМОЖНОЕ РЕШЕНИЕ', content),\n    hook: grab('ЗАЦЕПКА ДЛЯ ПЕРСОНАЛИЗАЦИИ', content),\n    rawResponse: content\n  }\n}];"
+        "jsCode": "const response = $input.first().json;\nconst raw = response.choices?.[0]?.message?.content || response.content || '';\nconst content = typeof raw === 'string' ? raw.trim() : '';\nconst source = $('По одной компании').item.json;\n\nfunction grab(labelPattern) {\n  const re = new RegExp(\n    '^' + labelPattern + '\\\\s*:\\\\s*([\\\\s\\\\S]*?)(?=\\\\n\\\\s*[А-ЯЁA-Z][А-ЯЁA-Z \\\\(\\\\)0-9]*\\\\s*:|$)',\n    'im'\n  );\n  const match = content.match(re);\n  return match ? match[1].trim() : '';\n}\n\nconst facts = grab('ФАКТЫ');\nconst scoreText = grab('SCORE');\nconst scoreMatch = scoreText.match(/^(?:100|[1-9]?\\\\d)$/);\nconst score = scoreMatch ? Number(scoreText) : null;\nconst scoreReason = grab('ПОЧЕМУ ТАКОЙ SCORE');\nconst hypothesis = grab('ГИПОТЕЗА\\\\s*\\\\(ПРОБЛЕМА\\\\)') || grab('ГИПОТЕЗА');\nconst solution = grab('ВОЗМОЖНОЕ РЕШЕНИЕ');\nconst hook = grab('ЗАЦЕПКА ДЛЯ ПЕРСОНАЛИЗАЦИИ');\n\nconst errors = [];\nif (!content) errors.push('empty_response');\nif (!Number.isInteger(score) || score < 0 || score > 100) errors.push('score_must_be_integer_0_100');\nif (!facts) errors.push('facts_missing');\nif (!scoreReason) errors.push('score_reason_missing');\nif (!hypothesis) errors.push('hypothesis_missing');\nif (!solution) errors.push('solution_missing');\nif (!hook) errors.push('personalization_hook_missing');\nif (facts.length > 2500 || scoreReason.length > 1000 ||\n    hypothesis.length > 1500 || solution.length > 1500 || hook.length > 800) {\n  errors.push('model_field_too_long');\n}\n\nconst company = String(source.company || '').trim();\nconst industry = String(source.industry || '').trim();\nconst site = String(source.site || '').trim();\nif (!company || company === '—' || company.length > 200) errors.push('source_company_invalid');\nif (industry.length > 160 || site.length > 500) errors.push('source_field_too_long');\n\nreturn [{\n  json: {\n    valid: errors.length === 0,\n    validationErrors: errors,\n    company,\n    site,\n    industry,\n    facts,\n    score,\n    scoreReason,\n    hypothesis,\n    solution,\n    hook\n  }\n}];"
       },
       "id": "parse-gigachat-node",
       "name": "Разобрать ответ GigaChat",
@@ -575,6 +575,58 @@
         2020,
         220
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "gigachat-valid-if-node",
+      "name": "Ответ GigaChat прошёл проверку?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ GigaChat вернул неполный или некорректный ответ для {{ $json.company || 'компании' }}. Лид не записан.\nПричины: {{ ($json.validationErrors || []).join(', ') }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-error-gigachat-invalid",
+      "name": "Ответ GigaChat отклонён",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        520
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
     }
   ],
   "connections": {
@@ -732,7 +784,7 @@
       "main": [
         [
           {
-            "node": "Записать лид в таблицу",
+            "node": "Ответ GigaChat прошёл проверку?",
             "type": "main",
             "index": 0
           }
@@ -860,6 +912,35 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответ GigaChat прошёл проверку?": {
+      "main": [
+        [
+          {
+            "node": "Записать лид в таблицу",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ответ GigaChat отклонён",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответ GigaChat отклонён": {
+      "main": [
         [
           {
             "node": "По одной компании",
