@@ -552,6 +552,71 @@ function testWorkflow4ValidationAndRouting() {
   assert.ok(workflow4.connections['Статус обновлён?'].main[0][0].node === 'Подтвердить обработку кнопки');
 }
 
+function testGigaChatOutputValidationBeforeLeadCreation() {
+  const parseNode = workflow3.nodes.find((node) => node.id === 'parse-gigachat-node');
+  const parser = new Function('$input', '$', parseNode.parameters.jsCode);
+  const sourceCompany = {
+    company: 'Synthetic Source Company',
+    industry: 'Dentistry',
+    site: 'https://synthetic.example'
+  };
+
+  function run(content) {
+    return parser(
+      { first: () => ({ json: { choices: [{ message: { content } }] } }) },
+      () => ({ item: { json: sourceCompany } })
+    )[0].json;
+  }
+
+  const validText = [
+    'КОМПАНИЯ: Model invented company name',
+    'ОТРАСЛЬ: Dentistry',
+    'ФАКТЫ: Данные синтетические. Компания относится к стоматологии.',
+    'SCORE: 72',
+    'ПОЧЕМУ ТАКОЙ SCORE: Есть повторяющиеся обращения и возможная нагрузка на администратора.',
+    'ГИПОТЕЗА (ПРОБЛЕМА): Возможно, часть обращений обрабатывается вручную.',
+    'ВОЗМОЖНОЕ РЕШЕНИЕ: Проверить один процесс и оценить пилот.',
+    'ЗАЦЕПКА ДЛЯ ПЕРСОНАЛИЗАЦИИ: На сайте указан онлайн-запрос.'
+  ].join('\n');
+
+  const valid = run(validText);
+  assert.equal(valid.valid, true);
+  assert.deepEqual(valid.validationErrors, []);
+  assert.equal(valid.score, 72);
+  assert.equal(valid.company, sourceCompany.company, 'use the source company name, not an LLM rewrite');
+  assert.equal(valid.industry, sourceCompany.industry);
+  assert.equal(valid.site, sourceCompany.site);
+
+  const highScore = run(validText.replace('SCORE: 72', 'SCORE: 172'));
+  assert.equal(highScore.valid, false);
+  assert.ok(highScore.validationErrors.includes('score_must_be_integer_0_100'));
+
+  const malformedScore = run(validText.replace('SCORE: 72', 'SCORE: 72 из 100'));
+  assert.equal(malformedScore.valid, false);
+  assert.ok(malformedScore.validationErrors.includes('score_must_be_integer_0_100'));
+
+  const missingSolution = run(validText.replace(
+    'ВОЗМОЖНОЕ РЕШЕНИЕ: Проверить один процесс и оценить пилот.\n',
+    ''
+  ));
+  assert.equal(missingSolution.valid, false);
+  assert.ok(missingSolution.validationErrors.includes('solution_missing'));
+
+  const missingFacts = run(validText.replace(
+    'ФАКТЫ: Данные синтетические. Компания относится к стоматологии.\n',
+    ''
+  ));
+  assert.equal(missingFacts.valid, false);
+  assert.ok(missingFacts.validationErrors.includes('facts_missing'));
+
+  const gate = workflow3.nodes.find((node) => node.id === 'gigachat-valid-if-node');
+  assert.ok(gate);
+  assert.ok(gate.parameters.conditions.conditions[0].leftValue.includes('$json.valid === true'));
+  assert.equal(workflow3.connections['Разобрать ответ GigaChat'].main[0][0].node, 'Ответ GigaChat прошёл проверку?');
+  assert.equal(workflow3.connections['Ответ GigaChat прошёл проверку?'].main[0][0].node, 'Записать лид в таблицу');
+  assert.equal(workflow3.connections['Ответ GigaChat прошёл проверку?'].main[1][0].node, 'Ответ GigaChat отклонён');
+}
+
 function testWorkflow3SkipsAtomicDuplicatesBeforeTelegram() {
   const write = workflow3.nodes.find((node) => node.id === 'add-lead-node');
   const gate = workflow3.nodes.find((node) => node.id === 'lead-added-if-node');
@@ -608,5 +673,7 @@ testWorkflow4ValidationAndRouting();
 testWorkflow3StoresCardBeforeButtons();
 testWorkflow3SkipsAtomicDuplicatesBeforeTelegram();
 testAllWorkflowExportsAreValidJson();
+
+testGigaChatOutputValidationBeforeLeadCreation();
 
 console.log('All n8n approval security tests passed.');
