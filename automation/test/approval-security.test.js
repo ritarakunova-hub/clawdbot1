@@ -505,7 +505,7 @@ function testManualRunbookMatchesGetRejectionContract() {
   );
   const manual = fs.readFileSync(path.join(__dirname, 'test.md'), 'utf8');
   const getHandler = appsScript.match(
-    /function doGet\\(e\\)\\s*\\{[\\s\\S]*?error:\\s*'([^']+)'/
+    /function doGet\(e\)\s*\{[\s\S]*?error:\s*'([^']+)'/
   );
 
   assert.ok(getHandler, 'Apps Script doGet must declare a stable rejection error');
