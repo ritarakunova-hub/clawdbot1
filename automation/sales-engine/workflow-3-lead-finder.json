@@ -634,6 +634,58 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "id": "check-exists-response-valid-if",
+      "name": "Ответ проверки дублей корректен?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true && typeof $json.exists === 'boolean' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "add-lead-response-valid-if",
+      "name": "Ответ сохранения лида корректен?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true && !!$json.id && typeof $json.duplicate === 'boolean' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -715,7 +767,7 @@
       "main": [
         [
           {
-            "node": "Новая компания?",
+            "node": "Ответ проверки дублей корректен?",
             "type": "main",
             "index": 0
           }
@@ -802,7 +854,7 @@
       "main": [
         [
           {
-            "node": "Новый лид сохранён?",
+            "node": "Ответ сохранения лида корректен?",
             "type": "main",
             "index": 0
           }
@@ -951,6 +1003,42 @@
         [
           {
             "node": "По одной компании",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответ проверки дублей корректен?": {
+      "main": [
+        [
+          {
+            "node": "Новая компания?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: проверка дублей",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответ сохранения лида корректен?": {
+      "main": [
+        [
+          {
+            "node": "Новый лид сохранён?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: запись в таблицу",
             "type": "main",
             "index": 0
           }
