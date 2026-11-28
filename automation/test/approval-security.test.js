@@ -804,16 +804,33 @@ function testGigaChatOutputValidationBeforeLeadCreation() {
 
   const originalCompany = sourceCompany.company;
   sourceCompany.company = 'Synthetic Source Company\nInjected line';
-  const multilineFacts = validText.replace(
-    'ФАКТЫ: Данные синтетические. Компания относится к стоматологии.',
-    'ФАКТЫ: Первая строка\nВторая строка'
-  );
+  const multilineFacts = validText
+    .replace(
+      'ФАКТЫ: Данные синтетические. Компания относится к стоматологии.',
+      'ФАКТЫ: Первая строка\nВторая строка'
+    )
+    .replace(
+      'ГИПОТЕЗА (ПРОБЛЕМА): Возможно, часть обращений обрабатывается вручную.',
+      'ГИПОТЕЗА (ПРОБЛЕМА): Гипотеза первая\nГипотеза вторая'
+    )
+    .replace(
+      'ВОЗМОЖНОЕ РЕШЕНИЕ: Проверить один процесс и оценить пилот.',
+      'ВОЗМОЖНОЕ РЕШЕНИЕ: Решение первая\nРешение вторая'
+    );
   const flattened = run(multilineFacts);
   assert.equal(flattened.valid, true);
   assert.ok(flattened.cardText.includes('Компания: Synthetic Source Company Injected line'));
   assert.ok(flattened.cardText.includes('Факты: Первая строка Вторая строка'));
-  assert.equal(flattened.cardText.includes('\n'), false,
-    'external display fields must not inject line breaks into Telegram card structure');
+  assert.ok(flattened.cardText.includes('Гипотеза: Гипотеза первая Гипотеза вторая'));
+  assert.ok(flattened.cardText.includes('Что предложить: Решение первая Решение вторая'));
+  assert.equal(flattened.facts, 'Первая строка\nВторая строка');
+  assert.equal(flattened.hypothesis, 'Гипотеза первая\nГипотеза вторая');
+  assert.equal(flattened.solution, 'Решение первая\nРешение вторая');
+  assert.equal(
+    flattened.cardText.includes('Компания: Synthetic Source Company\nInjected line'),
+    false,
+    'external source text must not inject a new Telegram card line'
+  );
   assert.equal(flattened.company, sourceCompany.company,
     'the source value retained for structured data is not changed by display normalization');
   sourceCompany.company = originalCompany;
