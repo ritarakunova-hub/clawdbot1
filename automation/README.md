@@ -47,12 +47,29 @@ Netlify подпись проверяется по исходным байтам
 
 ## Что проверено по документации, а что нет (честно)
 
-Из этой рабочей среды был заблокирован прямой доступ к docs.netlify.com,
-docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал только
-веб-поиск (по кэшу, не прямой заход на страницы). Поэтому:
+На 2026-11-28 повторно открыты официальные страницы Netlify, n8n и
+Google Apps Script. Верификация ниже относится к документированным
+механизмам, а не к конкретным live credentials или развёрнутым workflow:
 
-**Подтверждено через официальные страницы (по результатам поиска, ссылающимся
-на них):**
+- **Netlify HTTP Post / Payload signature:** JWS передаётся в
+  `X-Webhook-Signature`; claims включают `iss=netlify` и hex SHA-256
+  исходного тела; пример Netlify использует HS256 и требует сверить digest
+  с raw body до JSON parsing:
+  https://docs.netlify.com/deploy/deploy-notifications/
+- **n8n Webhook:** опция Raw Body документирована; документация разделяет
+  Test URL и Production URL — тестовый URL работает в режиме Listen for Test
+  Event/Execute Workflow, production endpoint регистрируется после publish:
+  https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/
+- **n8n Code node:** документирован `this.helpers.getBinaryDataBuffer()`
+  для получения исходных байтов из binary storage:
+  https://docs.n8n.io/code/cookbook/code-node/get-binary-data-buffer/
+- **Google Apps Script:** `doPost(e)` запускается для HTTP POST к Web App:
+  https://developers.google.com/apps-script/guides/triggers#dogete-and-doposte
+
+Ранее найденные сведения по Telegram nodes, Schedule Trigger, Loop Over Items,
+Outscraper, GigaChat и структуре Netlify Forms остаются ориентирами для
+проверки конфигурации. Они не заменяют проверку конкретной версии n8n,
+учётных данных и API-контракта в аккаунтах владельца.
 - n8n Webhook, Telegram (Send Message, Callback operations, Telegram Trigger
   на callback_query), Schedule Trigger, Loop Over Items (Split in Batches,
   выходы "loop"/"done") — поведение и основные параметры.
