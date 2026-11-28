@@ -292,9 +292,27 @@ function testNetlifySubmissionIdIsFormulaSafe() {
   assert.equal(h.rows.length, 2);
   const headers = h.rows[0];
   const savedId = h.rows[1][headers.indexOf('Netlify Submission ID')];
-  assert.equal(savedId, "'" + maliciousId,
-    'untrusted Netlify submission IDs must be stored as text, not formulas');
-  assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 1 });
+  const expectedDigest = crypto.createHash('sha256').update(rawBody).digest('hex');
+  assert.equal(savedId, 'sha256:' + expectedDigest,
+    'unsafe Netlify IDs must be replaced by a deterministic safe digest');
+  assert.ok(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(savedId),
+    'stored submission IDs must never begin with a spreadsheet formula prefix');
+
+  const duplicate = output(h.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'synthetic-test-token',
+        action: 'receiveSignedNetlifyLead',
+        signature,
+        rawBodyBase64
+      })
+    }
+  }));
+  assert.equal(duplicate.ok, true);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.id, '1');
+  assert.equal(h.rows.length, 2, 'unsafe IDs must still deduplicate across retries');
+  assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 2 });
 }
 
 function testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram() {
