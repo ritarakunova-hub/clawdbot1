@@ -1,13 +1,15 @@
 {
-  "_comment": "Пример тела запроса от Netlify Forms (без реальных данных) в реальном формате исходящего webhook: всё внутри payload. Поля — как у формы сайта taina-diagnostic: name, contact, message.",
+  "_comment": "Synthetic-only fixture for signing and verification tests. Not evidence of the exact payload shape or live consent configuration on the production Netlify form.",
   "payload": {
+    "id": "synthetic-netlify-submission-001",
     "form_name": "taina-diagnostic",
     "data": {
-      "name": "Иван Тестовый",
-      "contact": "@ivan_test",
-      "message": "Здравствуйте! Хочу разобрать, как ускорить ответы сотрудникам по регламентам."
+      "name": "Synthetic Person",
+      "contact": "synthetic@example.test",
+      "message": "Synthetic automation request; contains no real personal data.",
+      "consent": "yes"
     }
   },
-  "site_url": "https://example.netlify.app",
-  "created_at": "2026-01-01T10:00:00.000Z"
+  "site_url": "https://example.test",
+  "created_at": "2026-11-27T10:00:00.000Z"
 }

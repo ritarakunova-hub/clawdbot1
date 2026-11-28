@@ -10,21 +10,35 @@
    таблице. Сообщение компании система **никогда не отправляет сама** — вы
    решаете и пишете вручную.
 
-Никакой лишней инфраструктуры: только n8n (у вас уже развёрнут на Amvera) +
-Google Таблица через один скрипт + Telegram + GigaChat-credential (уже
-настроен у вас в n8n под именем "GigaChat").
+Архитектура рассчитана на n8n + Google Таблицу через Apps Script + Telegram +
+GigaChat. README исходного проекта упоминает Amvera и credential "GigaChat",
+но текущая версия/активность инстанции и привязки credentials пока не
+проверены в live n8n. Не считайте эти настройки подтверждёнными без runtime-сверки.
 
 ---
 
 ## Про репозиторий и форму сайта
 
-Сайт TAINA Studio лежит в другом репозитории (`clawdbot`, папка
-`taina-site-v2`). Его форма называется **`taina-diagnostic`** и присылает три
-поля: `name` (имя), `contact` (телефон, почта или Telegram одной строкой) и
-`message` (текст, необязательно). Нода "Привести поля к простому виду" в
-workflow-1 читает именно их, а заодно понимает и отдельные `email`/`phone`/
-`company`, если форма когда-нибудь поменяется. Скрипт Apps Script получает
-уже приведённые поля, поэтому названия полей формы для него не важны.
+Сайт TAINA Studio лежит в другом репозитории (`clawdbot`, файл
+`taina-site/index.html`). Форма называется **`taina-diagnostic`** и сейчас
+содержит поля `name`, `contact`, `message`. В проверенной версии HTML
+**нет отдельного поля согласия на обработку персональных данных**.
+
+Новая версия workflow-1 проверяет согласие до записи заявки. Поэтому текущие
+отправки формы будут отклоняться с `consent_required`, пока на сайте не появится
+явный обязательный checkbox согласия со ссылкой на утверждённую политику
+обработки персональных данных. Текст политики, оператор данных, основание,
+сроки хранения и порядок отзыва/удаления должны быть отдельно утверждены.
+Не заменяйте это простым скрытым полем или предустановленной галочкой.
+
+Netlify Submission ID сохраняется для идемпотентности. Если внешний ID не соответствует безопасному формату обычного идентификатора (например, начинается с `=`, `+`, `-` или `@`), вместо него используется детерминированный `sha256:` digest проверенного raw body. Повтор того же подписанного события остаётся дедуплицируемым.
+
+Netlify подпись проверяется по исходным байтам HTTP body до разбора JSON.
+В n8n Webhook включён `rawBody`, а Apps Script сверяет JWS из
+`X-Webhook-Signature` (HS256, `iss=netlify`, SHA-256 body) с секретом,
+который хранится только в Script Properties. Не активируйте приём заявок до
+добавления согласия на сайте и проверки тестового workflow на синтетических
+данных.
 
 Это единственный вариант мини-CRM и поиска клиентов (выбран владелицей в
 октябре 2026). Старый вариант на Node.js (папки `mini-crm/` и
@@ -35,12 +49,29 @@ workflow-1 читает именно их, а заодно понимает и �
 
 ## Что проверено по документации, а что нет (честно)
 
-Из этой рабочей среды был заблокирован прямой доступ к docs.netlify.com,
-docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал только
-веб-поиск (по кэшу, не прямой заход на страницы). Поэтому:
+На 2026-11-28 повторно открыты официальные страницы Netlify, n8n и
+Google Apps Script. Верификация ниже относится к документированным
+механизмам, а не к конкретным live credentials или развёрнутым workflow:
 
-**Подтверждено через официальные страницы (по результатам поиска, ссылающимся
-на них):**
+- **Netlify HTTP Post / Payload signature:** JWS передаётся в
+  `X-Webhook-Signature`; claims включают `iss=netlify` и hex SHA-256
+  исходного тела; пример Netlify использует HS256 и требует сверить digest
+  с raw body до JSON parsing:
+  https://docs.netlify.com/deploy/deploy-notifications/
+- **n8n Webhook:** опция Raw Body документирована; документация разделяет
+  Test URL и Production URL — тестовый URL работает в режиме Listen for Test
+  Event/Execute Workflow, production endpoint регистрируется после publish:
+  https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/
+- **n8n Code node:** документирован `this.helpers.getBinaryDataBuffer()`
+  для получения исходных байтов из binary storage:
+  https://docs.n8n.io/build/code-in-n8n/cookbook/code-node/get-the-binary-data-buffer
+- **Google Apps Script:** `doPost(e)` запускается для HTTP POST к Web App:
+  https://developers.google.com/apps-script/guides/triggers
+
+Ранее найденные сведения по Telegram nodes, Schedule Trigger, Loop Over Items,
+Outscraper, GigaChat и структуре Netlify Forms остаются ориентирами для
+проверки конфигурации. Они не заменяют проверку конкретной версии n8n,
+учётных данных и API-контракта в аккаунтах владельца.
 - n8n Webhook, Telegram (Send Message, Callback operations, Telegram Trigger
   на callback_query), Schedule Trigger, Loop Over Items (Split in Batches,
   выходы "loop"/"done") — поведение и основные параметры.
@@ -50,7 +81,15 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
   поддерживает синхронный и асинхронный режим, отдаёт поля вроде `name`,
   `site`, `category`, `phone`, `full_address`.
 - GigaChat: OpenAI-совместимый формат `chat/completions` (`messages` с
-  `role`/`content`), базовый адрес `https://gigachat.devices.sberbank.ru/api/v1`.
+  `role`/`content`), новый целевой адрес `https://api.giga.chat/v1`.
+  Перед каждым запросом к модели workflow получает access token через
+  `POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth` с HTTP Basic Auth.
+  Токен живёт 30 минут, поэтому его нельзя хранить как постоянный Bearer
+  credential. В OAuth передаётся обязательный `RqUID` формата UUIDv4 и scope:
+  `GIGACHAT_API_PERS` (физлицо), `GIGACHAT_API_B2B` или
+  `GIGACHAT_API_CORP` (варианты для бизнеса). Старый chat endpoint остаётся
+  доступным для подключений до 17.07.2026, но для новых подключений нужно
+  использовать `api.giga.chat`.
 - Формат исходящего webhook Netlify Forms: данные заявки лежат в
   `payload.data`, имя формы в `payload.form_name`. Это проверено на реальных
   заявках сайта в прежнем варианте мини-CRM (`mini-crm/src/lead.js` в
@@ -73,6 +112,40 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
 
 ---
 
+## Защита внешних данных и вызовов GigaChat / Outscraper
+
+В workflow-3 включены следующие ограничения:
+
+- HTTP timeout для Outscraper и OAuth token request — 30 секунд; для GigaChat chat completion — 45 секунд.
+  Сетевые ошибки идут по отдельным веткам уведомлений; бесконечного ожидания нет.
+- Поля компании, сайт, отрасль и адрес обрезаются до ограниченных длин до
+  передачи дальше по цепочке. Телефон и контактные сведения не передаются
+  в GigaChat.
+- Названия и содержимое сайтов трактуются как недоверенные внешние данные,
+  а не как инструкции. Системный prompt запрещает выполнять команды внутри
+  этих данных или раскрывать внутренние инструкции/секреты.
+- Ответ GigaChat проверяется до записи в таблицу: score должен быть целым
+  числом от 0 до 100, обязательные поля должны присутствовать, длины
+  ограничены. Неполный/некорректный ответ отправляется в ветку ошибки и
+  не создаёт лид.
+- Apps Script ответы на проверку дублей и запись лида проверяются отдельно:
+  `ok` должен быть `true`, `exists` — boolean, а результат записи должен
+  содержать `id` и boolean `duplicate`. Ошибка API или неверный shape ведут
+  в Telegram alert, а не интерпретируются как обычный дубль/успешный пропуск.
+- Telegram review card строится один раз в parser и используется при первой
+  отправке и последующем добавлении кнопок. Только отображаемые поля карточки
+  обрезаются до бюджетов; полные валидированные `hypothesis` и `solution`
+  остаются для записи в Sheet. Текст карточки ограничен 3800 символами плюс ID,
+  чтобы не превышать лимит Telegram в 4096 символов.
+- Apps Script проверяет обязательные заголовки таблицы перед приёмом заявки,
+  созданием Sales Engine lead, проверкой дублей и чтением просроченных задач;
+  неполная схема возвращает `ok:false` и не создаёт неполную строку.
+- Имя компании, отрасль и сайт в карточке берутся из исходной записи
+  Outscraper, а не из переписываемого моделью ответа.
+
+Это защита на уровне workflow, а не гарантия истинности данных. Факты,
+полученные из карт/сайтов, всё равно нужно проверить вручную перед outreach.
+
 ## а) Google Таблица + Apps Script
 
 1. Создайте Google Таблицу с названием **"TAINA — Воронка"**.
@@ -84,17 +157,28 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
    Канал связи | Score (0-100) | Возможная проблема (гипотеза) | Что предложить |
    Статус | Дата первого контакта | Дата последнего контакта | Следующее действие |
    Дата следующего действия | Ответ клиента | Продукт | Сумма (₽) | Комментарий |
-   Telegram Chat ID | Telegram Message ID
+   Telegram Chat ID | Telegram Message ID | Согласие на обработку ПДн |
+   Netlify Submission ID
    ```
 
 3. Расширения → Apps Script → сотрите содержимое `Code.gs` по умолчанию →
    вставьте код из [`apps-script/Code.gs`](./apps-script/Code.gs).
-4. Задайте в Apps Script → Project Settings → Script Properties три свойства:
-   - `WEBHOOK_TOKEN` — длинная случайная строка для внутреннего обмена n8n ↔ Apps Script;
+4. Задайте в Apps Script → Project Settings → Script Properties четыре свойства:
+   - `WEBHOOK_TOKEN` — длинная случайная строка для внутренних n8n → Apps Script вызовов;
    - `TELEGRAM_APPROVER_USER_ID` — числовой Telegram user ID владельца, которому разрешено нажимать кнопки;
-   - `TELEGRAM_CHAT_ID` — числовой ID личного чата владельца с ботом.
+   - `TELEGRAM_CHAT_ID` — числовой ID личного чата владельца с ботом;
+   - `NETLIFY_JWS_SECRET` — JWS secret, заданный в настройке outgoing webhook Netlify Form notification.
 
-   Значения не коммитьте, не вставляйте в JSON и не отправляйте в чат. Используйте отдельный тестовый чат и тестовую таблицу для первого прогона.
+   Один и тот же JWS secret должен быть сохранён в Netlify и в Apps Script Script Properties. Не вставляйте его в workflow JSON или репозиторий. Значения не коммитьте и не отправляйте в чат. Используйте отдельный тестовый чат и тестовую таблицу для первого прогона.
+
+   Внутренний `WEBHOOK_TOKEN` передаётся в POST body: Apps Script Web App
+   не предоставляет произвольные HTTP request headers в `doPost(e)`.
+   Поэтому ограничьте доступ к execution history n8n, включите разумное
+   pruning/retention и не экспортируйте execution data с уже подставленным
+   токеном или реальными заявками. Используйте длинный случайный token и
+   ротируйте его при любом подозрении на раскрытие. Apps Script сравнивает
+   его fail-closed с constant-time helper; это не заменяет управление
+   доступом и сроками хранения execution data.
 5. Кнопка "Развернуть" → "Новое развёртывание" → тип "Веб-приложение":
    Execute as — **Me**, Who has access — **Anyone** (доступ защищён токеном
    на уровне кода).
@@ -121,26 +205,45 @@ docs.n8n.io, developers.google.com и docs.gigachat.ai — сработал то
 | Плейсхолдер | Где взять | Где встречается |
 |---|---|---|
 | `YOUR_APPS_SCRIPT_URL` | шаг "а".6 | во всех HTTP Request нодах к таблице |
-| `YOUR_WEBHOOK_TOKEN` | шаг "а".4 | там же, рядом с URL |
+| `YOUR_WEBHOOK_TOKEN` | шаг "а".4 | во внутренних HTTP Request нодах к Apps Script |
+| `NETLIFY_JWS_SECRET` | JWS secret из outgoing webhook Netlify | только Netlify notification и Apps Script Script Properties; в n8n JSON не вставляется |
 | `YOUR_TELEGRAM_CHAT_ID` | раздел "в" | во всех Telegram-нодах |
 | `YOUR_TELEGRAM_CREDENTIAL_ID` | раздел "в" | выбирается из выпадающего списка в ноде, не текстом |
 | `YOUR_RANDOM_WEBHOOK_PATH` | придумайте сами | нода Webhook в workflow-1 |
 | `YOUR_OUTSCRAPER_API_KEY` | раздел "е" | нода "Найти компании (Outscraper)" |
-| `YOUR_GIGACHAT_CREDENTIAL_ID` | у вас уже настроен credential "GigaChat" | выбирается из списка в ноде "GigaChat: оценить компанию" |
+| `YOUR_GIGACHAT_BASIC_CREDENTIAL_ID` | Client ID + Client Secret проекта GigaChat API | credential HTTP Basic Auth в ноде "Получить токен GigaChat" |
 | `YOUR_SHEET_URL` | ссылка на вашу таблицу | текст уведомлений в Telegram (необязательно, но удобно) |
 
 Для полей вида `YOUR_..._CREDENTIAL_ID` не нужно вписывать текст руками —
 откройте ноду, в поле Credential выберите (или создайте) нужный credential из
 выпадающего списка, n8n сам подставит правильный ID.
 
+**Создайте credential GigaChat API Basic**
+
+1. В n8n откройте Credentials → Create New → **HTTP Basic Auth**.
+2. В Username укажите Client ID проекта GigaChat API, в Password — Client
+   Secret. Сохраните под именем `GigaChat API Basic`.
+3. В ноде "Получить токен GigaChat" выберите этот credential. Не создавайте
+   credential типа HTTP Bearer Auth с готовым access token: он истекает через
+   30 минут.
+4. В ноде "Получить токен GigaChat" проверьте поле scope. По умолчанию стоит
+   `GIGACHAT_API_PERS`; для бизнес-проекта замените на значение, указанное
+   для вашего проекта (`GIGACHAT_API_B2B` или `GIGACHAT_API_CORP`).
+5. Запрос за новым токеном выполняется перед каждой новой компанией. Сам
+   access token передаётся далее в GigaChat node и может присутствовать в
+   execution data; ограничьте доступ к Executions, retention и экспортам.
+
 Важные детали по каждому workflow:
 
-- **workflow-1**: путь вебхука (`YOUR_RANDOM_WEBHOOK_PATH`) придумайте сами —
-  любая длинная строка из букв/цифр, чтобы её нельзя было угадать (это
-  дополнительная защита сверх токена).
+- **workflow-1**: путь вебхука (`YOUR_RANDOM_WEBHOOK_PATH`) — дополнительная
+  мера снижения шума, но не аутентификация. Реальная защита — проверка JWS
+  `X-Webhook-Signature` по исходному body. В Webhook node должно оставаться
+  `options.rawBody = true`; не удаляйте этот параметр.
 - **workflow-2**: проверьте в настройках workflow (шестерёнка → Settings)
   часовой пояс — должен быть Europe/Moscow, иначе напоминание придёт не в
-  10:00 по Москве.
+  10:00 по Москве. Ответ Apps Script проверяется по `ok`, `count` и массиву
+  `items`; сетевой сбой или некорректный ответ уходит в отдельное Telegram-
+  уведомление, а не в formatter.
 - **workflow-3**: в ноде "Параметры поиска (меняйте здесь)" перед каждым
   запуском меняете нишу/город/лимит — код трогать не нужно.
 - **workflow-4**: должен быть активен одновременно с workflow-3 — иначе
@@ -195,7 +298,7 @@ chat/message с сохранённой карточкой и разрешает 
 `На рассмотрении` → `Одобрено` или `Отклонено`. Неизвестные action/status,
 устаревшая карточка и повторный противоположный выбор отклоняются.
 
-Статус меняется только через POST body; GET-`updateStatus` закрыт.
+Все внутренние операции Apps Script (напоминания, проверка дублей, сохранение карточки и решение по статусу) вызываются только через POST body. `doGet` полностью закрыт: bearer token не передаётся в URL.
 Workflow-4 отвечает на callback query и показывает отказ, если проверка
 не прошла. Это не заменяет отдельную проверку webhook-авторизации Netlify
 для workflow-1: этот PR касается только approval-потока.
@@ -206,15 +309,26 @@ deployment. Не обновляйте production deployment до проверк�
 
 ---
 
-## д) Netlify — подключение webhook
+## д) Netlify — безопасная настройка webhook
 
-1. Активируйте workflow-1 в n8n (тумблер Active).
-2. Откройте ноду Webhook → скопируйте **Production URL** (не Test URL — Test
-   URL работает только пока вы вручную нажали "Listen for test event").
-3. В Netlify: Site configuration → Forms → Form notifications → Add
-   notification → Outgoing webhook.
-4. Event to listen for: New form submission. URL to notify: вставьте
-   Production URL. Form: выберите вашу форму. Сохраните.
+**Не активируйте production workflow на текущей форме:** проверенный файл
+`clawdbot/taina-site/index.html` пока не содержит обязательного согласия.
+Новая интеграция fail-closed и будет отклонять отправки без подтверждённого
+согласия.
+
+1. Сначала утвердите политику обработки персональных данных и текст согласия,
+   затем добавьте на форму `taina-diagnostic` обязательный unchecked checkbox
+   с именем `consent`. Нельзя автоматически проставлять согласие.
+2. Создайте отдельную тестовую копию формы/сайта и тестовый n8n webhook.
+3. В Netlify откройте Forms → Submission notifications → Add notification →
+   Outgoing webhook и выберите только форму `taina-diagnostic`.
+4. В поле JWS secret token задайте длинный случайный секрет. Тот же секрет
+   сохраните в Apps Script Script Properties как `NETLIFY_JWS_SECRET`.
+5. Для теста используйте только Test URL ноды Webhook и включённый режим
+   `rawBody`. После успешных тестов production URL и activation — отдельное
+   решение владельца; не переключайте на production автоматически.
+6. Перед включением проверьте, что уведомление Netlify содержит заголовок
+   `X-Webhook-Signature`, а тестовый подписанный запрос проходит проверку.
 
 ---
 
@@ -235,8 +349,9 @@ deployment. Не обновляйте production deployment до проверк�
 
 Подробный пошаговый тест — в [`test/test.md`](./test/test.md). Коротко:
 
-1. Тестовая заявка (curl или реальная форма сайта) → строка в таблице +
-   Telegram-уведомление.
+1. Подписанная синтетическая заявка через тестовый webhook → строка в
+   отдельной тестовой таблице + общее Telegram-уведомление без PII. Реальную
+   форму нельзя подключать до утверждения политики и поля согласия.
 2. Тестовая просроченная строка в таблице → срабатывает напоминание.
 3. Запуск поиска лидов на 2–3 компаниях → карточка в Telegram → строка в
    таблице со статусом "На рассмотрении".
@@ -267,14 +382,12 @@ deployment. Не обновляйте production deployment до проверк�
    → Нужно новое развёртывание (Deploy → Manage deployments → Edit → New
    version), просто сохранить код в редакторе недостаточно.
 
-5. **GigaChat-нода падает с ошибкой сертификата (TLS/SSL)**
-   → GigaChat использует сертификат от Минцифры России, который не всегда
-   есть в стандартном наборе доверенных сертификатов сервера. Проверьте с
-   тем, кто настраивал credential "GigaChat" — возможно, на сервере n8n
-   (Amvera) нужно установить этот корневой сертификат, либо (менее
-   безопасный временный вариант) включить в ноде Options → "Ignore SSL
-   Issues" — я не стал включать это по умолчанию, так как это ослабляет
-   проверку подлинности сервера.
+5. **GigaChat OAuth/token или chat node падает с ошибкой сертификата (TLS/SSL)**
+   → На сервере n8n (Amvera) должна быть установлена доверенная цепочка
+   сертификатов УЦ Минцифры России, необходимая для обращения к GigaChat.
+   Проверьте CA bundle и сетевой доступ к `ngw.devices.sberbank.ru:9443`
+   и `api.giga.chat:443`. Не включайте "Ignore SSL Issues" и не отключайте
+   проверку TLS: это позволяет подменить endpoint и раскрыть credentials/token.
 
 Отдельно, не про поломку, а про путаницу: если кнопки "Одобрить"/"Отклонить"
 не реагируют — проверьте, что workflow-4 тоже активен (тумблер Active), а не
@@ -297,6 +410,8 @@ automation/
 │   └── workflow-4-approval-handler.json
 └── test/
     ├── sample-netlify-payload.json
+    ├── send-signed-sample.js
+    ├── approval-security.test.js
     └── test.md
 ```
 
@@ -312,10 +427,10 @@ automation/
 ## Итог: что сделано / что проверено / что сделать руками
 
 **Сделано:**
-- Единый `Code.gs` для таблицы "TAINA — Воронка" (2 действия doPost, 3
-  действия doGet), поиск столбцов по названию, токен обязателен.
-- 4 workflow для n8n с обработкой ошибок на каждом внешнем вызове (без
-  тихих падений) и человеком в контуре перед любой отправкой компании.
+- Единый `Code.gs` для таблицы "TAINA — Воронка": внутренние операции доступны только через `doPost`, токен обязателен, `doGet` полностью закрыт; поиск столбцов выполняется по названию.
+- 4 workflow для n8n; ключевые HTTP-операции имеют ограниченные timeout,
+  ветки ошибок и проверки ответов. Для отправки сообщения компании требуется
+  ручное действие владельца.
 - Тестовые материалы и пошаговый README.
 - Нет ни одного реального секрета в файлах — везде плейсхолдеры.
 
@@ -325,10 +440,10 @@ Script Web App, общая структура Outscraper и GigaChat API.
 
 **Сделать руками** (я не могу это проверить без ваших реальных учётных
 данных):
-- Создать таблицу, вставить скрипт, задать токен, развернуть Web App.
+- Создать отдельную тестовую таблицу, вставить Apps Script, задать только тестовые Script Properties и развернуть тестовую версию Web App.
 - Импортировать 4 workflow, заменить плейсхолдеры, выбрать credentials.
 - Создать Telegram-бота, узнать chat_id.
 - Получить Outscraper API key и **сверить точный URL/параметры API в своём
   личном кабинете** перед первым боевым запуском.
-- Подключить Netlify outgoing webhook на Production URL.
+- Для E2E использовать только тестовый Netlify outgoing webhook и test URL. Production webhook запрещено подключать до утверждения политики обработки ПДн, текста согласия, обязательного unchecked checkbox на сайте и отдельного решения владельца.
 - Пройти проверку по `test/test.md` целиком.

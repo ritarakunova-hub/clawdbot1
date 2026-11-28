@@ -3,17 +3,20 @@
  * Обслуживает и мини-CRM (заявки с сайта), и Sales Engine (лиды с Google Maps).
  *
  * Действия:
- *   doPost  { token, source, ... }                      — добавить строку (лид)
- *   doGet   ?action=overdue&token=...                   — заявки/лиды без действия в срок
- *   doGet   ?action=checkExists&company=...&site=...&token=...  — проверка дублей
- *   doPost  { action:'updateStatus', ... }                    — сменить статус безопасно
+ *   doPost  { token, source:'sales-engine', ... }       — добавить Sales Engine lead
+ *   doPost  { action:'getOverdue', token }                   — заявки/лиды без действия в срок
+ *   doPost  { action:'checkExists', company, site, token }   — проверка дублей
+ *   doPost  { action:'updateStatus', ... }                   — сменить статус безопасно
+ *   doPost  { action:'receiveSignedNetlifyLead', ... }       — принять подписанную заявку
+ *   doGet   — запрещён; токены и операции нельзя передавать в URL
  *
  * Настройка токена (обязательно):
  *   Расширения → Apps Script → шестерёнка "Настройки проекта" → "Свойства скрипта"
  *   → добавить свойства:
  *     WEBHOOK_TOKEN = длинная случайная строка для внутренних n8n → Apps Script вызовов;
  *     TELEGRAM_APPROVER_USER_ID = numeric Telegram user ID владельца;
- *     TELEGRAM_CHAT_ID = numeric private chat ID владельца.
+ *     TELEGRAM_CHAT_ID = numeric private chat ID владельца;
+ *     NETLIFY_JWS_SECRET = JWS secret из Netlify form notification.
  *   Эти значения не хранить в Git и не отправлять в чат.
  *
  * Столбцы (первая строка листа, порядок не важен — скрипт ищет по названию):
@@ -21,7 +24,7 @@
  *   Канал связи, Score (0-100), Возможная проблема (гипотеза), Что предложить,
  *   Статус, Дата первого контакта, Дата последнего контакта, Следующее действие,
  *   Дата следующего действия, Ответ клиента, Продукт, Сумма (₽), Комментарий,
- *   Telegram Chat ID, Telegram Message ID
+ *   Telegram Chat ID, Telegram Message ID, Согласие на обработку ПДн, Netlify Submission ID
  */
 
 var TIMEZONE = 'Europe/Moscow';
@@ -40,6 +43,15 @@ function doPost(e) {
   }
 
   try {
+    if (payload.action === 'receiveSignedNetlifyLead') {
+      return receiveSignedNetlifyLead(payload);
+    }
+    if (payload.action === 'getOverdue') {
+      return getOverdue();
+    }
+    if (payload.action === 'checkExists') {
+      return checkExists(payload.company || '', payload.site || '');
+    }
     if (payload.action === 'saveApprovalMessage') {
       return saveApprovalMessage(payload.id, payload.chatId, payload.messageId);
     }
@@ -51,7 +63,7 @@ function doPost(e) {
 
     var source = payload.source || 'netlify';
     if (source === 'netlify') {
-      return addNetlifyLead(payload);
+      return jsonOutput({ ok: false, error: 'signed_netlify_action_required' });
     }
     if (source === 'sales-engine') {
       return addSalesEngineLead(payload);
@@ -63,26 +75,262 @@ function doPost(e) {
 }
 
 function doGet(e) {
-  var action = e.parameter.action;
+  // Never accept bearer secrets or mutable/read operations in the URL.
+  return jsonOutput({ ok: false, error: 'get_not_allowed_use_post_body' });
+}
 
-  if (!checkToken(e.parameter.token)) {
-    return jsonOutput({ ok: false, error: 'Неверный или отсутствующий token' });
-  }
+// ---------- signed Netlify intake ----------
 
+function receiveSignedNetlifyLead(request) {
+  var verified;
   try {
-    if (action === 'overdue') {
-      return getOverdue();
-    }
-    if (action === 'checkExists') {
-      return checkExists(e.parameter.company || '', e.parameter.site || '');
-    }
-    if (action === 'updateStatus') {
-      return jsonOutput({ ok: false, error: 'status_update_requires_post' });
-    }
-    return jsonOutput({ ok: false, error: 'Неизвестное действие: ' + action });
+    verified = verifyNetlifyJws(request.signature, request.rawBodyBase64);
   } catch (err) {
-    return jsonOutput({ ok: false, error: String(err) });
+    return jsonOutput({ ok: false, error: 'invalid_netlify_signature' });
   }
+  if (!verified || !verified.ok) {
+    return jsonOutput({ ok: false, error: 'invalid_netlify_signature' });
+  }
+
+  var root;
+  try {
+    root = JSON.parse(verified.rawBody);
+  } catch (err) {
+    return jsonOutput({ ok: false, error: 'invalid_netlify_payload' });
+  }
+
+  var payload = root && root.payload && typeof root.payload === 'object' &&
+    !Array.isArray(root.payload) ? root.payload : root;
+  var data = payload && payload.data && typeof payload.data === 'object' &&
+    !Array.isArray(payload.data) ? payload.data : {};
+
+  var formName = String(payload.form_name || root.form_name || '').trim();
+  if (formName !== 'taina-diagnostic') {
+    return jsonOutput({ ok: false, error: 'unexpected_form' });
+  }
+
+  var consent = pickNetlifyValue(data, [
+    'consent',
+    'personal_data_consent',
+    'consent_to_processing',
+    'data_processing_consent',
+    'Согласие на обработку персональных данных',
+    'согласие'
+  ]).toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'accepted', 'согласен', 'согласна', 'да'].indexOf(consent) === -1) {
+    return jsonOutput({ ok: false, error: 'consent_required' });
+  }
+
+  var name = pickNetlifyValue(data, ['name', 'Name', 'имя', 'Имя', 'full_name', 'fullname']);
+  var company = pickNetlifyValue(data, ['company', 'Company', 'компания', 'Компания', 'organization']);
+  var email = pickNetlifyValue(data, ['email', 'Email', 'почта', 'Почта']);
+  var phone = pickNetlifyValue(data, ['phone', 'Phone', 'телефон', 'Телефон', 'tel']);
+  var contact = pickNetlifyValue(data, ['contact', 'Contact', 'контакт', 'Контакт']);
+  var message = pickNetlifyValue(data, ['message', 'Message', 'сообщение', 'Сообщение', 'comment', 'комментарий', 'текст']);
+
+  if (!email && !phone && !contact) {
+    return jsonOutput({ ok: false, error: 'contact_required' });
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return jsonOutput({ ok: false, error: 'invalid_email' });
+  }
+  if (phone && phone.replace(/\D/g, '').length < 7) {
+    return jsonOutput({ ok: false, error: 'invalid_phone' });
+  }
+  if (name.length > 120 || company.length > 120 || email.length > 254 ||
+      phone.length > 48 || contact.length > 254 || message.length > 2000) {
+    return jsonOutput({ ok: false, error: 'field_too_long' });
+  }
+
+  var generalContact = contact;
+  var channel = '';
+  if (email) {
+    channel = 'Email: ' + email;
+  } else if (phone) {
+    channel = 'Тел.: ' + phone;
+  } else if (/^@|t\.me\//i.test(generalContact)) {
+    channel = 'Telegram: ' + generalContact;
+  } else if (generalContact.indexOf('@') !== -1) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(generalContact)) {
+      return jsonOutput({ ok: false, error: 'invalid_contact' });
+    }
+    channel = 'Email: ' + generalContact;
+  } else {
+    channel = 'Контакт: ' + generalContact;
+  }
+
+  var createdAtValue = payload.created_at || root.created_at || new Date().toISOString();
+  var createdAt = new Date(createdAtValue);
+  if (isNaN(createdAt.getTime())) {
+    return jsonOutput({ ok: false, error: 'invalid_created_at' });
+  }
+
+  // Netlify form notification examples do not always expose an explicit submission ID.
+  // The signed SHA-256 body digest is stable across retries of the same exact event.
+  var submittedId = String(
+    payload.id || payload.submission_id || root.id || ('sha256:' + verified.sha256)
+  ).trim();
+  if (!submittedId || submittedId.length > 128) {
+    return jsonOutput({ ok: false, error: 'invalid_submission_id' });
+  }
+  // Keep external IDs stable when they are plain identifiers. Fall back to
+  // the verified body digest for values that could become spreadsheet formulas.
+  var submissionId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(submittedId)
+    ? submittedId
+    : 'sha256:' + verified.sha256;
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = getSheet();
+    var headers = getHeaders(sheet);
+    var submissionCol = headers.indexOf('Netlify Submission ID');
+    var idCol = headers.indexOf('ID');
+    var missingHeaders = getMissingHeaders(headers, [
+      'ID', 'Дата добавления', 'Компания', 'Контакт (ЛПР)', 'Канал связи',
+      'Источник', 'Статус', 'Следующее действие', 'Дата следующего действия',
+      'Комментарий', 'Согласие на обработку ПДн', 'Netlify Submission ID'
+    ]);
+    if (missingHeaders.length) {
+      return jsonOutput({ ok: false, error: 'netlify_columns_missing', missing: missingHeaders });
+    }
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      var existingRows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+      for (var i = 0; i < existingRows.length; i++) {
+        if (String(existingRows[i][submissionCol] || '') === submissionId) {
+          return jsonOutput({
+            ok: true,
+            duplicate: true,
+            id: String(existingRows[i][idCol]),
+            form_name: formName
+          });
+        }
+      }
+    }
+
+    var id = sheet.getLastRow();
+    var row = new Array(headers.length).fill('');
+    setCol(row, headers, 'ID', id);
+    setCol(row, headers, 'Дата добавления', createdAt);
+    setCol(row, headers, 'Компания', safeSheetText(company || '—'));
+    setCol(row, headers, 'Контакт (ЛПР)', safeSheetText(name || '—'));
+    setCol(row, headers, 'Канал связи', safeSheetText(channel));
+    setCol(row, headers, 'Источник', 'Заявка с сайта');
+    setCol(row, headers, 'Статус', 'Новый');
+    setCol(row, headers, 'Следующее действие', 'Ответить на заявку');
+    setCol(row, headers, 'Дата следующего действия', addDays(createdAt, 1));
+    setCol(row, headers, 'Комментарий', safeSheetText(message));
+    setCol(row, headers, 'Согласие на обработку ПДн', 'yes');
+    setCol(row, headers, 'Netlify Submission ID', safeSheetText(submissionId));
+
+    sheet.appendRow(row);
+    SpreadsheetApp.flush();
+    return jsonOutput({
+      ok: true,
+      duplicate: false,
+      id: String(id),
+      form_name: formName
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function verifyNetlifyJws(token, rawBodyBase64) {
+  var secret = PropertiesService.getScriptProperties().getProperty('NETLIFY_JWS_SECRET');
+  if (!secret || typeof token !== 'string' || token.length > 8192 ||
+      typeof rawBodyBase64 !== 'string' || !rawBodyBase64 || rawBodyBase64.length > 180000) {
+    return { ok: false };
+  }
+
+  var parts = token.split('.');
+  if (parts.length !== 3 || parts.some(function (part) { return !part; })) {
+    return { ok: false };
+  }
+
+  var header;
+  var claims;
+  var rawBytes;
+  try {
+    header = JSON.parse(Utilities.newBlob(
+      Utilities.base64DecodeWebSafe(parts[0])
+    ).getDataAsString('UTF-8'));
+    claims = JSON.parse(Utilities.newBlob(
+      Utilities.base64DecodeWebSafe(parts[1])
+    ).getDataAsString('UTF-8'));
+    rawBytes = Utilities.base64Decode(rawBodyBase64);
+  } catch (err) {
+    return { ok: false };
+  }
+
+  if (!header || header.alg !== 'HS256' ||
+      !claims || claims.iss !== 'netlify' || typeof claims.sha256 !== 'string') {
+    return { ok: false };
+  }
+
+  var actualHash = bytesToHex(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, rawBytes)
+  );
+  if (!constantTimeTextEquals(claims.sha256.toLowerCase(), actualHash)) {
+    return { ok: false };
+  }
+
+  var expectedSignature = Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature(parts[0] + '.' + parts[1], secret)
+  ).replace(/=+$/, '');
+  if (!constantTimeTextEquals(parts[2], expectedSignature)) {
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    rawBody: Utilities.newBlob(rawBytes).getDataAsString('UTF-8'),
+    sha256: actualHash
+  };
+}
+
+function pickNetlifyValue(data, names) {
+  for (var i = 0; i < names.length; i++) {
+    var value = data[names[i]];
+    if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value)) {
+      value = value.filter(function (item) {
+        return ['string', 'number', 'boolean'].indexOf(typeof item) !== -1;
+      }).map(function (item) { return String(item).trim(); }).filter(Boolean).join(', ');
+    } else if (['string', 'number', 'boolean'].indexOf(typeof value) !== -1) {
+      value = String(value).trim();
+    } else {
+      continue;
+    }
+    if (value) return String(value);
+  }
+  return '';
+}
+
+function safeSheetText(value) {
+  var text = String(value === undefined || value === null ? '' : value);
+  // Prevent untrusted form text from becoming a spreadsheet formula.
+  return /^[\s]*[=+\-@]/.test(text) ? "'" + text : text;
+}
+
+function bytesToHex(bytes) {
+  return bytes.map(function (byte) {
+    var value = byte < 0 ? byte + 256 : byte;
+    return (value < 16 ? '0' : '') + value.toString(16);
+  }).join('');
+}
+
+function constantTimeTextEquals(left, right) {
+  left = String(left || '');
+  right = String(right || '');
+  if (left.length !== right.length) return false;
+  var mismatch = 0;
+  for (var i = 0; i < left.length; i++) {
+    mismatch |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  }
+  return mismatch === 0;
 }
 
 // ---------- doPost: добавление лидов ----------
@@ -109,39 +357,108 @@ function addNetlifyLead(payload) {
 }
 
 function addSalesEngineLead(payload) {
-  var sheet = getSheet();
-  var headers = getHeaders(sheet);
-  var id = sheet.getLastRow();
+  var company = String(payload.company || '').trim();
+  var site = String(payload.site || '').trim();
+  var industry = String(payload.industry || '').trim();
+  var hypothesis = String(payload.hypothesis || '').trim();
+  var solution = String(payload.solution || '').trim();
+  var score = payload.score;
 
-  var row = new Array(headers.length).fill('');
-  setCol(row, headers, 'ID', id);
-  setCol(row, headers, 'Дата добавления', new Date());
-  setCol(row, headers, 'Компания', payload.company || '—');
-  setCol(row, headers, 'Сайт', payload.site || '');
-  setCol(row, headers, 'Отрасль', payload.industry || '');
-  setCol(row, headers, 'Источник', 'Google Maps');
-  setCol(row, headers, 'Score (0-100)', payload.score !== undefined ? payload.score : '');
-  setCol(row, headers, 'Возможная проблема (гипотеза)', payload.hypothesis || '');
-  setCol(row, headers, 'Что предложить', payload.solution || '');
-  setCol(row, headers, 'Статус', 'На рассмотрении');
-  setCol(row, headers, 'Telegram Chat ID', '');
-  setCol(row, headers, 'Telegram Message ID', '');
+  if (!company || company === '—' || company.length > 200) {
+    return jsonOutput({ ok: false, error: 'invalid_company' });
+  }
+  if (site.length > 500 || industry.length > 160 ||
+      hypothesis.length > 2000 || solution.length > 2000) {
+    return jsonOutput({ ok: false, error: 'sales_lead_field_too_long' });
+  }
+  if (typeof score !== 'number' || !Number.isInteger(score) || score < 0 || score > 100) {
+    return jsonOutput({ ok: false, error: 'invalid_score' });
+  }
 
-  sheet.appendRow(row);
-  return jsonOutput({ ok: true, id: id, row: sheet.getLastRow() });
+  // The preliminary n8n check is only a filter. This lock-protected check
+  // is the authoritative uniqueness gate for concurrent workflow executions.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var sheet = getSheet();
+    var headers = getHeaders(sheet);
+    var companyCol = headers.indexOf('Компания');
+    var siteCol = headers.indexOf('Сайт');
+    var idCol = headers.indexOf('ID');
+    var missingHeaders = getMissingHeaders(headers, [
+      'ID', 'Дата добавления', 'Компания', 'Сайт', 'Отрасль', 'Источник',
+      'Score (0-100)', 'Возможная проблема (гипотеза)', 'Что предложить',
+      'Статус', 'Telegram Chat ID', 'Telegram Message ID'
+    ]);
+    if (missingHeaders.length) {
+      return jsonOutput({ ok: false, error: 'sales_lead_columns_missing', missing: missingHeaders });
+    }
+
+    var companyNorm = normalizeText(company);
+    var siteNorm = normalizeSite(site);
+    var lastRow = sheet.getLastRow();
+
+    if (lastRow > 1) {
+      var existingRows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+      for (var i = 0; i < existingRows.length; i++) {
+        var existingCompany = companyCol >= 0
+          ? normalizeText(existingRows[i][companyCol])
+          : '';
+        var existingSite = siteCol >= 0
+          ? normalizeSite(existingRows[i][siteCol])
+          : '';
+
+        if ((companyNorm && existingCompany === companyNorm) ||
+            (siteNorm && existingSite === siteNorm)) {
+          return jsonOutput({
+            ok: true,
+            duplicate: true,
+            id: String(existingRows[i][idCol]),
+            matched_by: companyNorm && existingCompany === companyNorm ? 'company' : 'site'
+          });
+        }
+      }
+    }
+
+    var id = sheet.getLastRow();
+    var row = new Array(headers.length).fill('');
+    setCol(row, headers, 'ID', id);
+    setCol(row, headers, 'Дата добавления', new Date());
+    setCol(row, headers, 'Компания', safeSheetText(company));
+    setCol(row, headers, 'Сайт', safeSheetText(site));
+    setCol(row, headers, 'Отрасль', safeSheetText(industry));
+    setCol(row, headers, 'Источник', 'Google Maps');
+    setCol(row, headers, 'Score (0-100)', score);
+    setCol(row, headers, 'Возможная проблема (гипотеза)', safeSheetText(hypothesis));
+    setCol(row, headers, 'Что предложить', safeSheetText(solution));
+    setCol(row, headers, 'Статус', 'На рассмотрении');
+    setCol(row, headers, 'Telegram Chat ID', '');
+    setCol(row, headers, 'Telegram Message ID', '');
+
+    sheet.appendRow(row);
+    SpreadsheetApp.flush();
+    return jsonOutput({ ok: true, duplicate: false, id: String(id), row: sheet.getLastRow() });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
-// ---------- doGet: чтение и обновление ----------
+// ---------- read helpers (invoked through authenticated POST only) ----------
 
 function getOverdue() {
   var sheet = getSheet();
   var headers = getHeaders(sheet);
   var idCol = headers.indexOf('ID');
   var companyCol = headers.indexOf('Компания');
-  var contactCol = headers.indexOf('Контакт (ЛПР)');
   var statusCol = headers.indexOf('Статус');
   var nextActionCol = headers.indexOf('Следующее действие');
   var nextDateCol = headers.indexOf('Дата следующего действия');
+  var missingHeaders = getMissingHeaders(headers, [
+    'ID', 'Компания', 'Статус', 'Следующее действие', 'Дата следующего действия'
+  ]);
+  if (missingHeaders.length) {
+    return jsonOutput({ ok: false, error: 'overdue_columns_missing', missing: missingHeaders });
+  }
 
   var todayStr = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
   var lastRow = sheet.getLastRow();
@@ -160,7 +477,6 @@ function getOverdue() {
       items.push({
         id: idCol >= 0 ? r[idCol] : '',
         company: companyCol >= 0 ? r[companyCol] : '',
-        contact: contactCol >= 0 ? r[contactCol] : '',
         status: status,
         nextAction: nextActionCol >= 0 ? r[nextActionCol] : '',
         nextActionDate: nextDateStr
@@ -176,6 +492,10 @@ function checkExists(company, site) {
   var headers = getHeaders(sheet);
   var companyCol = headers.indexOf('Компания');
   var siteCol = headers.indexOf('Сайт');
+  var missingHeaders = getMissingHeaders(headers, ['Компания', 'Сайт']);
+  if (missingHeaders.length) {
+    return jsonOutput({ ok: false, error: 'duplicate_check_columns_missing', missing: missingHeaders });
+  }
 
   var companyNorm = normalizeText(company);
   var siteNorm = normalizeSite(site);
@@ -336,6 +656,12 @@ function getHeaders(sheet) {
   });
 }
 
+function getMissingHeaders(headers, required) {
+  return required.filter(function (name) {
+    return headers.indexOf(name) < 0;
+  });
+}
+
 function setCol(row, headers, headerName, value) {
   var idx = headers.indexOf(headerName);
   if (idx !== -1) {
@@ -372,11 +698,11 @@ function normalizeSite(value) {
 
 function checkToken(token) {
   var expected = PropertiesService.getScriptProperties().getProperty('WEBHOOK_TOKEN');
-  if (!expected) {
-    // Токен не настроен — считаем это ошибкой конфигурации, а не пропускаем проверку.
+  if (!expected || typeof token !== 'string' || token.length > 4096) {
+    // Missing/malformed credentials are configuration errors, never a pass.
     return false;
   }
-  return token === expected;
+  return constantTimeTextEquals(token, expected);
 }
 
 function jsonOutput(obj) {
