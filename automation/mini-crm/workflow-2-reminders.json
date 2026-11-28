@@ -116,6 +116,42 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "id": "apps-script-response-valid-if",
+      "name": "Ответ Apps Script корректен?",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.ok === true && Number.isInteger($json.count) && Array.isArray($json.items) && $json.count === $json.items.length }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "telegram-error-reminder-node",
+      "name": "Ошибка: получить просроченные заявки",
+      "type": "n8n-nodes-base.telegram",
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Не удалось получить корректный список заявок без ответа из TAINA Mini-CRM. Проверьте Apps Script, доступ к тестовой Google Таблице и execution в n8n. После устранения ошибки повторите проверку вручную.",
+        "additionalFields": {}
+      }
     }
   ],
   "connections": {
@@ -134,7 +170,14 @@
       "main": [
         [
           {
-            "node": "Есть просроченные?",
+            "node": "Ответ Apps Script корректен?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: получить просроченные заявки",
             "type": "main",
             "index": 0
           }
@@ -158,6 +201,24 @@
         [
           {
             "node": "Отправить напоминание",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ответ Apps Script корректен?": {
+      "main": [
+        [
+          {
+            "node": "Есть просроченные?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ошибка: получить просроченные заявки",
             "type": "main",
             "index": 0
           }
