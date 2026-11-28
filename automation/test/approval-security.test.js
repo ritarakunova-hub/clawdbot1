@@ -315,6 +315,61 @@ function testNetlifySubmissionIdIsFormulaSafe() {
   assert.deepEqual(h.lockState(), { lockDepth: 0, lockReleases: 2 });
 }
 
+function testAppsScriptFailsClosedOnMissingRequiredHeaders() {
+  const netlify = makeHarness('На рассмотрении', false);
+  netlify.rows[0][netlify.rows[0].indexOf('Контакт (ЛПР)')] = 'Legacy Contact';
+  const rawBody = makeNetlifyBody();
+  const signature = makeNetlifyJws(rawBody);
+  const netlifyResult = output(netlify.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'synthetic-test-token',
+        action: 'receiveSignedNetlifyLead',
+        signature,
+        rawBodyBase64: Buffer.from(rawBody, 'utf8').toString('base64')
+      })
+    }
+  }));
+  assert.equal(netlifyResult.ok, false);
+  assert.equal(netlifyResult.error, 'netlify_columns_missing');
+  assert.ok(netlifyResult.missing.includes('Контакт (ЛПР)'));
+  assert.equal(netlify.rows.length, 1);
+  assert.deepEqual(netlify.lockState(), { lockDepth: 0, lockReleases: 1 });
+
+  const sales = makeHarness('На рассмотрении', false);
+  sales.rows[0][sales.rows[0].indexOf('Сайт')] = 'Legacy Site';
+  const salesResult = output(sales.context.doPost({
+    postData: {
+      contents: JSON.stringify({
+        token: 'synthetic-test-token',
+        source: 'sales-engine',
+        company: 'Synthetic Clinic',
+        site: 'https://synthetic.example',
+        score: 75
+      })
+    }
+  }));
+  assert.equal(salesResult.ok, false);
+  assert.equal(salesResult.error, 'sales_lead_columns_missing');
+  assert.ok(salesResult.missing.includes('Сайт'));
+  assert.equal(sales.rows.length, 1);
+  assert.deepEqual(sales.lockState(), { lockDepth: 0, lockReleases: 1 });
+
+  const overdue = makeHarness();
+  overdue.rows[0][overdue.rows[0].indexOf('Дата следующего действия')] = 'Legacy Due Date';
+  const overdueResult = output(overdue.context.getOverdue());
+  assert.equal(overdueResult.ok, false);
+  assert.equal(overdueResult.error, 'overdue_columns_missing');
+  assert.ok(overdueResult.missing.includes('Дата следующего действия'));
+
+  const duplicate = makeHarness();
+  duplicate.rows[0][duplicate.rows[0].indexOf('Сайт')] = 'Legacy Site';
+  const duplicateResult = output(duplicate.context.checkExists('Synthetic Clinic', 'https://synthetic.example'));
+  assert.equal(duplicateResult.ok, false);
+  assert.equal(duplicateResult.error, 'duplicate_check_columns_missing');
+  assert.ok(duplicateResult.missing.includes('Сайт'));
+}
+
 function testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram() {
   const webhook = JSON.parse(fs.readFileSync(
     path.join(__dirname, '..', 'mini-crm', 'workflow-1-new-lead.json'), 'utf8'
@@ -883,6 +938,7 @@ function testAllWorkflowExportsAreValidJson() {
 
 testNetlifyJwsAndSignedIntake();
 testNetlifySubmissionIdIsFormulaSafe();
+testAppsScriptFailsClosedOnMissingRequiredHeaders();
 testSalesEngineAtomicDedupeAndScoreValidation();
 testWorkflow1RequiresRawSignedBodyAndMinimizesTelegram();
 testInternalTokenValidationFailsClosed();
