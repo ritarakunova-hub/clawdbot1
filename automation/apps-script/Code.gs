@@ -213,7 +213,7 @@ function receiveSignedNetlifyLead(request) {
     setCol(row, headers, 'Дата следующего действия', addDays(createdAt, 1));
     setCol(row, headers, 'Комментарий', safeSheetText(message));
     setCol(row, headers, 'Согласие на обработку ПДн', 'yes');
-    setCol(row, headers, 'Netlify Submission ID', submissionId);
+    setCol(row, headers, 'Netlify Submission ID', safeSheetText(submissionId));
 
     sheet.appendRow(row);
     SpreadsheetApp.flush();
