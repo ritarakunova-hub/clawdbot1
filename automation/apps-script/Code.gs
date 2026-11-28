@@ -186,8 +186,13 @@ function receiveSignedNetlifyLead(request) {
     var headers = getHeaders(sheet);
     var submissionCol = headers.indexOf('Netlify Submission ID');
     var idCol = headers.indexOf('ID');
-    if (submissionCol < 0 || idCol < 0) {
-      return jsonOutput({ ok: false, error: 'netlify_dedup_column_missing' });
+    var missingHeaders = getMissingHeaders(headers, [
+      'ID', 'Дата добавления', 'Компания', 'Контакт (ЛПР)', 'Канал связи',
+      'Источник', 'Статус', 'Следующее действие', 'Дата следующего действия',
+      'Комментарий', 'Согласие на обработку ПДн', 'Netlify Submission ID'
+    ]);
+    if (missingHeaders.length) {
+      return jsonOutput({ ok: false, error: 'netlify_columns_missing', missing: missingHeaders });
     }
 
     var lastRow = sheet.getLastRow();
@@ -380,8 +385,13 @@ function addSalesEngineLead(payload) {
     var companyCol = headers.indexOf('Компания');
     var siteCol = headers.indexOf('Сайт');
     var idCol = headers.indexOf('ID');
-    if (companyCol < 0 || idCol < 0) {
-      return jsonOutput({ ok: false, error: 'sales_lead_columns_missing' });
+    var missingHeaders = getMissingHeaders(headers, [
+      'ID', 'Дата добавления', 'Компания', 'Сайт', 'Отрасль', 'Источник',
+      'Score (0-100)', 'Возможная проблема (гипотеза)', 'Что предложить',
+      'Статус', 'Telegram Chat ID', 'Telegram Message ID'
+    ]);
+    if (missingHeaders.length) {
+      return jsonOutput({ ok: false, error: 'sales_lead_columns_missing', missing: missingHeaders });
     }
 
     var companyNorm = normalizeText(company);
@@ -443,6 +453,12 @@ function getOverdue() {
   var statusCol = headers.indexOf('Статус');
   var nextActionCol = headers.indexOf('Следующее действие');
   var nextDateCol = headers.indexOf('Дата следующего действия');
+  var missingHeaders = getMissingHeaders(headers, [
+    'ID', 'Компания', 'Статус', 'Следующее действие', 'Дата следующего действия'
+  ]);
+  if (missingHeaders.length) {
+    return jsonOutput({ ok: false, error: 'overdue_columns_missing', missing: missingHeaders });
+  }
 
   var todayStr = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
   var lastRow = sheet.getLastRow();
@@ -476,6 +492,10 @@ function checkExists(company, site) {
   var headers = getHeaders(sheet);
   var companyCol = headers.indexOf('Компания');
   var siteCol = headers.indexOf('Сайт');
+  var missingHeaders = getMissingHeaders(headers, ['Компания', 'Сайт']);
+  if (missingHeaders.length) {
+    return jsonOutput({ ok: false, error: 'duplicate_check_columns_missing', missing: missingHeaders });
+  }
 
   var companyNorm = normalizeText(company);
   var siteNorm = normalizeSite(site);
@@ -633,6 +653,12 @@ function getHeaders(sheet) {
   var lastCol = sheet.getLastColumn();
   return sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
     return String(h).trim();
+  });
+}
+
+function getMissingHeaders(headers, required) {
+  return required.filter(function (name) {
+    return headers.indexOf(name) < 0;
   });
 }
 
