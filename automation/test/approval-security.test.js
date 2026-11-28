@@ -834,12 +834,32 @@ function testGigaChatOutputValidationBeforeLeadCreation() {
 function testWorkflow3SkipsAtomicDuplicatesBeforeTelegram() {
   const write = workflow3.nodes.find((node) => node.id === 'add-lead-node');
   const gate = workflow3.nodes.find((node) => node.id === 'lead-added-if-node');
+  const checkResponseGate = workflow3.nodes.find((node) => node.id === 'check-exists-response-valid-if');
+  const writeResponseGate = workflow3.nodes.find((node) => node.id === 'add-lead-response-valid-if');
   assert.ok(write);
   assert.ok(gate);
+  assert.ok(checkResponseGate, 'duplicate check must validate Apps Script response');
+  assert.ok(writeResponseGate, 'lead insert must validate Apps Script response');
   assert.equal(write.parameters.method, 'POST');
   assert.ok(write.parameters.jsonBody.includes("source: 'sales-engine'"));
   assert.ok(gate.parameters.conditions.conditions[0].leftValue.includes('$json.duplicate !== true'));
-  assert.equal(workflow3.connections['Записать лид в таблицу'].main[0][0].node, 'Новый лид сохранён?');
+
+  const duplicateCheckCondition = checkResponseGate.parameters.conditions.conditions[0].leftValue;
+  assert.ok(duplicateCheckCondition.includes('$json.ok === true'));
+  assert.ok(duplicateCheckCondition.includes("typeof $json.exists === 'boolean'"));
+  assert.equal(workflow3.connections['Проверить дубликат'].main[0][0].node, 'Ответ проверки дублей корректен?');
+  assert.equal(workflow3.connections['Проверить дубликат'].main[1][0].node, 'Ошибка: проверка дублей');
+  assert.equal(workflow3.connections['Ответ проверки дублей корректен?'].main[0][0].node, 'Новая компания?');
+  assert.equal(workflow3.connections['Ответ проверки дублей корректен?'].main[1][0].node, 'Ошибка: проверка дублей');
+
+  const insertCondition = writeResponseGate.parameters.conditions.conditions[0].leftValue;
+  assert.ok(insertCondition.includes('$json.ok === true'));
+  assert.ok(insertCondition.includes('!!$json.id'));
+  assert.ok(insertCondition.includes("typeof $json.duplicate === 'boolean'"));
+  assert.equal(workflow3.connections['Записать лид в таблицу'].main[0][0].node, 'Ответ сохранения лида корректен?');
+  assert.equal(workflow3.connections['Записать лид в таблицу'].main[1][0].node, 'Ошибка: запись в таблицу');
+  assert.equal(workflow3.connections['Ответ сохранения лида корректен?'].main[0][0].node, 'Новый лид сохранён?');
+  assert.equal(workflow3.connections['Ответ сохранения лида корректен?'].main[1][0].node, 'Ошибка: запись в таблицу');
   assert.equal(workflow3.connections['Новый лид сохранён?'].main[0][0].node, 'Отправить карточку лида');
   assert.equal(workflow3.connections['Новый лид сохранён?'].main[1][0].node, 'По одной компании');
 }
