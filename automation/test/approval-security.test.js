@@ -753,6 +753,45 @@ function testAllExternalHttpRequestsHaveTimeouts() {
   assert.equal(workflow3.nodes.find((node) => node.id === 'gigachat-node').parameters.options.timeout, 45000);
 }
 
+function testAllWorkflowGraphsReferenceExistingNodesAndRemainInactive() {
+  const workflowPaths = [
+    '../mini-crm/workflow-1-new-lead.json',
+    '../mini-crm/workflow-2-reminders.json',
+    '../sales-engine/workflow-3-lead-finder.json',
+    '../sales-engine/workflow-4-approval-handler.json'
+  ];
+
+  for (const relative of workflowPaths) {
+    const workflow = JSON.parse(fs.readFileSync(path.join(__dirname, relative), 'utf8'));
+    assert.equal(workflow.active, false, workflow.name + ': export must remain inactive');
+    assert.ok(Array.isArray(workflow.nodes) && workflow.nodes.length > 0,
+      workflow.name + ': workflow must contain nodes');
+
+    const names = workflow.nodes.map((node) => node.name);
+    const ids = workflow.nodes.map((node) => node.id);
+    assert.equal(names.filter((name) => typeof name === 'string' && name.length > 0).length,
+      workflow.nodes.length, workflow.name + ': every node must have a non-empty name');
+    assert.equal(ids.filter((id) => typeof id === 'string' && id.length > 0).length,
+      workflow.nodes.length, workflow.name + ': every node must have a non-empty id');
+    assert.equal(new Set(names).size, names.length, workflow.name + ': node names must be unique');
+    assert.equal(new Set(ids).size, ids.length, workflow.name + ': node IDs must be unique');
+
+    const knownNames = new Set(names);
+    for (const [source, connectionTypes] of Object.entries(workflow.connections || {})) {
+      assert.ok(knownNames.has(source),
+        workflow.name + ': connection source does not exist: ' + source);
+      for (const outputGroups of Object.values(connectionTypes || {})) {
+        for (const outputGroup of outputGroups || []) {
+          for (const edge of outputGroup || []) {
+            assert.ok(edge && knownNames.has(edge.node),
+              workflow.name + ': connection target does not exist: ' + (edge && edge.node));
+          }
+        }
+      }
+    }
+  }
+}
+
 function testAllWorkflowExportsAreValidJson() {
   for (const relative of [
     '../mini-crm/workflow-1-new-lead.json',
@@ -777,6 +816,7 @@ testWorkflow4ValidationAndRouting();
 testWorkflow3StoresCardBeforeButtons();
 testWorkflow3SkipsAtomicDuplicatesBeforeTelegram();
 testAllWorkflowExportsAreValidJson();
+testAllWorkflowGraphsReferenceExistingNodesAndRemainInactive();
 
 testGigaChatOutputValidationBeforeLeadCreation();
 testGigaChatPromptInjectionAndExternalTimeouts();
