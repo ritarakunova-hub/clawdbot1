@@ -803,16 +803,16 @@ function testGigaChatOutputValidationBeforeLeadCreation() {
   assert.equal(valid.truncatedFields.length, 0);
 
   const originalCompany = sourceCompany.company;
-  sourceCompany.company = 'Synthetic Source Company\\nInjected line';
+  sourceCompany.company = 'Synthetic Source Company\nInjected line';
   const multilineFacts = validText.replace(
     'ФАКТЫ: Данные синтетические. Компания относится к стоматологии.',
-    'ФАКТЫ: Первая строка\\nВторая строка'
+    'ФАКТЫ: Первая строка\nВторая строка'
   );
   const flattened = run(multilineFacts);
   assert.equal(flattened.valid, true);
   assert.ok(flattened.cardText.includes('Компания: Synthetic Source Company Injected line'));
   assert.ok(flattened.cardText.includes('Факты: Первая строка Вторая строка'));
-  assert.equal(flattened.cardText.includes('\\n'), false,
+  assert.equal(flattened.cardText.includes('\n'), false,
     'external display fields must not inject line breaks into Telegram card structure');
   assert.equal(flattened.company, sourceCompany.company,
     'the source value retained for structured data is not changed by display normalization');
