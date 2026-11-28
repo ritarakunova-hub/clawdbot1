@@ -62,7 +62,7 @@ Google Apps Script. Верификация ниже относится к док
   https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/
 - **n8n Code node:** документирован `this.helpers.getBinaryDataBuffer()`
   для получения исходных байтов из binary storage:
-  https://docs.n8n.io/code/cookbook/code-node/get-binary-data-buffer/
+  https://docs.n8n.io/build/code-in-n8n/cookbook/code-node/get-the-binary-data-buffer
 - **Google Apps Script:** `doPost(e)` запускается для HTTP POST к Web App:
   https://developers.google.com/apps-script/guides/triggers#dogete-and-doposte
 
