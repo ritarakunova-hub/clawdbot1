@@ -554,6 +554,21 @@ function testWorkflow2And3UsePostBodies() {
   assert.ok(overdueNode.parameters.jsonBody.includes('getOverdue'));
   assert.ok(overdueNode.parameters.jsonBody.includes('YOUR_WEBHOOK_TOKEN'));
   assert.equal(overdueNode.parameters.sendQuery, undefined);
+  assert.equal(overdueNode.onError, 'continueErrorOutput');
+  const responseGate = workflow2.nodes.find((node) => node.id === 'apps-script-response-valid-if');
+  const reminderError = workflow2.nodes.find((node) => node.id === 'telegram-error-reminder-node');
+  assert.ok(responseGate, 'reminder workflow must validate the Apps Script response');
+  assert.ok(reminderError, 'reminder workflow must notify the owner when lookup fails');
+  const responseCondition = responseGate.parameters.conditions.conditions[0].leftValue;
+  assert.ok(responseCondition.includes('$json.ok === true'));
+  assert.ok(responseCondition.includes('Array.isArray($json.items)'));
+  assert.ok(responseCondition.includes('$json.count === $json.items.length'));
+  assert.equal(workflow2.connections['Получить просроченные заявки'].main[0][0].node, 'Ответ Apps Script корректен?');
+  assert.equal(workflow2.connections['Получить просроченные заявки'].main[1][0].node, 'Ошибка: получить просроченные заявки');
+  assert.equal(workflow2.connections['Ответ Apps Script корректен?'].main[1][0].node, 'Ошибка: получить просроченные заявки');
+  assert.equal(workflow2.connections['Ответ Apps Script корректен?'].main[0][0].node, 'Есть просроченные?');
+  assert.ok(!/email|phone|contact|контакт|телефон/i.test(reminderError.parameters.text),
+    'reminder error must not include personal data');
 
   const duplicateNode = workflow3.nodes.find((node) => node.id === 'check-exists-node');
   assert.equal(duplicateNode.parameters.method, 'POST');
