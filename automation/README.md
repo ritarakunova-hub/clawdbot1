@@ -64,7 +64,7 @@ Google Apps Script. Верификация ниже относится к док
   для получения исходных байтов из binary storage:
   https://docs.n8n.io/build/code-in-n8n/cookbook/code-node/get-the-binary-data-buffer
 - **Google Apps Script:** `doPost(e)` запускается для HTTP POST к Web App:
-  https://developers.google.com/apps-script/guides/triggers#dogete-and-doposte
+  https://developers.google.com/apps-script/guides/triggers
 
 Ранее найденные сведения по Telegram nodes, Schedule Trigger, Loop Over Items,
 Outscraper, GigaChat и структуре Netlify Forms остаются ориентирами для
