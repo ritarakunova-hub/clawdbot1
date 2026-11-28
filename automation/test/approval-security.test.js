@@ -499,6 +499,22 @@ function testGetRejectsAllActionsAndPostCarriesToken() {
   assert.equal(exists.exists, false);
 }
 
+function testManualRunbookMatchesGetRejectionContract() {
+  const appsScript = fs.readFileSync(
+    path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'
+  );
+  const manual = fs.readFileSync(path.join(__dirname, 'test.md'), 'utf8');
+  const getHandler = appsScript.match(
+    /function doGet\\(e\\)\\s*\\{[\\s\\S]*?error:\\s*'([^']+)'/
+  );
+
+  assert.ok(getHandler, 'Apps Script doGet must declare a stable rejection error');
+  assert.ok(
+    manual.includes('`' + getHandler[1] + '`'),
+    'manual test runbook must document the exact doGet rejection error'
+  );
+}
+
 function testWorkflow2And3UsePostBodies() {
   const workflow2 = JSON.parse(fs.readFileSync(
     path.join(__dirname, '..', 'mini-crm', 'workflow-2-reminders.json'), 'utf8'
@@ -811,6 +827,7 @@ testApprovalMessageBinding();
 testOwnerAndExactCardAuthorization();
 testAllowedTransitionAndIdempotency();
 testGetRejectsAllActionsAndPostCarriesToken();
+testManualRunbookMatchesGetRejectionContract();
 testWorkflow2And3UsePostBodies();
 testWorkflow4ValidationAndRouting();
 testWorkflow3StoresCardBeforeButtons();
