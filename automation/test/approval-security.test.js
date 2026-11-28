@@ -717,6 +717,48 @@ function testWorkflow4ValidationAndRouting() {
   assert.ok(workflow4.connections['Статус обновлён?'].main[0][0].node === 'Подтвердить обработку кнопки');
 }
 
+function testGigaChatOAuthLifecycleAndCurrentEndpoint() {
+  const token = workflow3.nodes.find((node) => node.id === 'gigachat-oauth-token-node');
+  const tokenGate = workflow3.nodes.find((node) => node.id === 'gigachat-token-valid-if');
+  const tokenError = workflow3.nodes.find((node) => node.id === 'telegram-error-gigachat-token');
+  const giga = workflow3.nodes.find((node) => node.id === 'gigachat-node');
+
+  assert.ok(token, 'GigaChat token must be fetched dynamically before each model call');
+  assert.ok(tokenGate, 'OAuth token response must be validated before use');
+  assert.ok(tokenError, 'OAuth failures must notify the owner');
+  assert.ok(giga);
+  assert.equal(token.parameters.method, 'POST');
+  assert.equal(token.parameters.url, 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth');
+  assert.equal(token.parameters.authentication, 'genericCredentialType');
+  assert.equal(token.parameters.genericAuthType, 'httpBasicAuth');
+  assert.equal(token.credentials.httpBasicAuth.name, 'GigaChat API Basic');
+  assert.equal(token.parameters.contentType, 'form-urlencoded');
+  assert.equal(token.parameters.bodyParameters.parameters[0].name, 'scope');
+  assert.ok(['GIGACHAT_API_PERS', 'GIGACHAT_API_B2B', 'GIGACHAT_API_CORP'].includes(
+    token.parameters.bodyParameters.parameters[0].value
+  ));
+  assert.match(
+    token.parameters.headerParameters.parameters.find((item) => item.name === 'RqUID').value,
+    /4xxx-yxxx/
+  );
+  assert.equal(token.parameters.options.timeout, 30000);
+  assert.equal(token.onError, 'continueErrorOutput');
+  assert.ok(tokenGate.parameters.conditions.conditions[0].leftValue.includes('$json.access_token'));
+  assert.equal(workflow3.connections['Новая компания?'].main[0][0].node, 'Получить токен GigaChat');
+  assert.equal(workflow3.connections['Получить токен GigaChat'].main[0][0].node, 'Токен GigaChat получен?');
+  assert.equal(workflow3.connections['Получить токен GigaChat'].main[1][0].node, 'Ошибка: токен GigaChat');
+  assert.equal(workflow3.connections['Токен GigaChat получен?'].main[0][0].node, 'GigaChat: оценить компанию');
+  assert.equal(workflow3.connections['Токен GigaChat получен?'].main[1][0].node, 'Ошибка: токен GigaChat');
+
+  assert.equal(giga.parameters.url, 'https://api.giga.chat/v1/chat/completions');
+  assert.equal(giga.parameters.authentication, 'none');
+  assert.equal(giga.credentials, undefined, 'do not store a short-lived Bearer token as a static n8n credential');
+  const authorization = giga.parameters.headerParameters.parameters.find((item) => item.name === 'Authorization');
+  assert.ok(authorization.value.includes("$('Получить токен GigaChat').item.json.access_token"));
+  assert.equal(tokenError.parameters.text.includes('access_token'), false,
+    'OAuth failure Telegram alert must not disclose the token');
+}
+
 function testGigaChatPromptInjectionAndExternalTimeouts() {
   const outscraper = workflow3.nodes.find((node) => node.id === 'outscraper-node');
   const prepare = workflow3.nodes.find((node) => node.id === 'prepare-list-node');
@@ -957,6 +999,7 @@ function testAllExternalHttpRequestsHaveTimeouts() {
 
   assert.equal(workflow3.nodes.find((node) => node.id === 'outscraper-node').parameters.options.timeout, 30000);
   assert.equal(workflow3.nodes.find((node) => node.id === 'gigachat-node').parameters.options.timeout, 45000);
+  assert.equal(workflow3.nodes.find((node) => node.id === 'gigachat-oauth-token-node').parameters.options.timeout, 30000);
 }
 
 function testAllWorkflowGraphsReferenceExistingNodesAndRemainInactive() {
@@ -1028,6 +1071,7 @@ testAllWorkflowExportsAreValidJson();
 testAllWorkflowGraphsReferenceExistingNodesAndRemainInactive();
 
 testGigaChatOutputValidationBeforeLeadCreation();
+testGigaChatOAuthLifecycleAndCurrentEndpoint();
 testGigaChatPromptInjectionAndExternalTimeouts();
 testAllExternalHttpRequestsHaveTimeouts();
 
