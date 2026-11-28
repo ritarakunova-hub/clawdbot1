@@ -167,12 +167,17 @@ function receiveSignedNetlifyLead(request) {
 
   // Netlify form notification examples do not always expose an explicit submission ID.
   // The signed SHA-256 body digest is stable across retries of the same exact event.
-  var submissionId = String(
+  var submittedId = String(
     payload.id || payload.submission_id || root.id || ('sha256:' + verified.sha256)
   ).trim();
-  if (!submissionId || submissionId.length > 128) {
+  if (!submittedId || submittedId.length > 128) {
     return jsonOutput({ ok: false, error: 'invalid_submission_id' });
   }
+  // Keep external IDs stable when they are plain identifiers. Fall back to
+  // the verified body digest for values that could become spreadsheet formulas.
+  var submissionId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(submittedId)
+    ? submittedId
+    : 'sha256:' + verified.sha256;
 
   var lock = LockService.getScriptLock();
   lock.waitLock(10000);
