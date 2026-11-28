@@ -800,6 +800,24 @@ function testGigaChatOutputValidationBeforeLeadCreation() {
   assert.equal(valid.company, sourceCompany.company, 'use the source company name, not an LLM rewrite');
   assert.equal(valid.industry, sourceCompany.industry);
   assert.equal(valid.site, sourceCompany.site);
+  assert.equal(valid.truncatedFields.length, 0);
+  assert.ok(valid.cardText.startsWith('🎯 Новый лид (Score: 72)'));
+  assert.ok(valid.cardText.includes('\\n\\nКомпания:'));
+  assert.ok(valid.cardText.length <= 3800);
+
+  const longText = validText
+    .replace('ФАКТЫ: Данные синтетические. Компания относится к стоматологии.', 'ФАКТЫ: ' + 'Ф'.repeat(1800))
+    .replace('ПОЧЕМУ ТАКОЙ SCORE: Есть повторяющиеся обращения и возможная нагрузка на администратора.', 'ПОЧЕМУ ТАКОЙ SCORE: ' + 'О'.repeat(800))
+    .replace('ГИПОТЕЗА (ПРОБЛЕМА): Возможно, часть обращений обрабатывается вручную.', 'ГИПОТЕЗА (ПРОБЛЕМА): ' + 'Г'.repeat(1000))
+    .replace('ВОЗМОЖНОЕ РЕШЕНИЕ: Проверить один процесс и оценить пилот.', 'ВОЗМОЖНОЕ РЕШЕНИЕ: ' + 'Р'.repeat(1000))
+    .replace('ЗАЦЕПКА ДЛЯ ПЕРСОНАЛИЗАЦИИ: На сайте указан онлайн-запрос.', 'ЗАЦЕПКА ДЛЯ ПЕРСОНАЛИЗАЦИИ: ' + 'З'.repeat(500));
+  const long = run(longText);
+  assert.equal(long.valid, true);
+  assert.deepEqual(long.truncatedFields, ['facts', 'scoreReason', 'hypothesis', 'solution', 'hook']);
+  assert.equal(long.hypothesis.length, 1000, 'full validated analysis remains available for the Sheet write');
+  assert.equal(long.solution.length, 1000, 'full validated solution remains available for the Sheet write');
+  assert.ok(long.cardText.length <= 3800, 'review card stays below Telegram message limit');
+  assert.ok(long.cardText.includes('…'), 'truncated card fields are visibly marked');
 
   const highScore = run(validText.replace('SCORE: 72', 'SCORE: 172'));
   assert.equal(highScore.valid, false);
@@ -878,6 +896,8 @@ function testWorkflow3StoresCardBeforeButtons() {
   assert.ok(save.parameters.jsonBody.includes('result.message_id'));
   assert.ok(save.parameters.jsonBody.includes('saveApprovalMessage'));
   assert.ok(attach.parameters.inlineKeyboard, 'buttons are attached only in a later operation');
+  assert.ok(card.parameters.text.includes('.json.cardText'));
+  assert.ok(attach.parameters.text.includes('.json.cardText'));
 
   assert.equal(workflow3.connections['Отправить карточку лида'].main[0][0].node, 'Сохранить ID карточки');
   assert.equal(workflow3.connections['Сохранить ID карточки'].main[0][0].node, 'ID карточки сохранён?');
