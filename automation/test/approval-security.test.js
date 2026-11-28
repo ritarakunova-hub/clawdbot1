@@ -802,7 +802,7 @@ function testGigaChatOutputValidationBeforeLeadCreation() {
   assert.equal(valid.site, sourceCompany.site);
   assert.equal(valid.truncatedFields.length, 0);
   assert.ok(valid.cardText.startsWith('🎯 Новый лид (Score: 72)'));
-  assert.ok(valid.cardText.includes('\\n\\nКомпания:'));
+  assert.ok(valid.cardText.includes('\n\nКомпания:'));
   assert.ok(valid.cardText.length <= 3800);
 
   const longText = validText
