@@ -356,6 +356,8 @@ automation/
 │   └── workflow-4-approval-handler.json
 └── test/
     ├── sample-netlify-payload.json
+    ├── send-signed-sample.js
+    ├── approval-security.test.js
     └── test.md
 ```
 
