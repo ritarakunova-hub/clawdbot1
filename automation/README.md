@@ -81,7 +81,15 @@ Outscraper, GigaChat и структуре Netlify Forms остаются ори
   поддерживает синхронный и асинхронный режим, отдаёт поля вроде `name`,
   `site`, `category`, `phone`, `full_address`.
 - GigaChat: OpenAI-совместимый формат `chat/completions` (`messages` с
-  `role`/`content`), базовый адрес `https://gigachat.devices.sberbank.ru/api/v1`.
+  `role`/`content`), новый целевой адрес `https://api.giga.chat/v1`.
+  Перед каждым запросом к модели workflow получает access token через
+  `POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth` с HTTP Basic Auth.
+  Токен живёт 30 минут, поэтому его нельзя хранить как постоянный Bearer
+  credential. В OAuth передаётся обязательный `RqUID` формата UUIDv4 и scope:
+  `GIGACHAT_API_PERS` (физлицо), `GIGACHAT_API_B2B` или
+  `GIGACHAT_API_CORP` (варианты для бизнеса). Старый chat endpoint остаётся
+  доступным для подключений до 17.07.2026, но для новых подключений нужно
+  использовать `api.giga.chat`.
 - Формат исходящего webhook Netlify Forms: данные заявки лежат в
   `payload.data`, имя формы в `payload.form_name`. Это проверено на реальных
   заявках сайта в прежнем варианте мини-CRM (`mini-crm/src/lead.js` в
@@ -108,7 +116,7 @@ Outscraper, GigaChat и структуре Netlify Forms остаются ори
 
 В workflow-3 включены следующие ограничения:
 
-- HTTP timeout для Outscraper — 30 секунд; для GigaChat — 45 секунд.
+- HTTP timeout для Outscraper и OAuth token request — 30 секунд; для GigaChat chat completion — 45 секунд.
   Сетевые ошибки идут по отдельным веткам уведомлений; бесконечного ожидания нет.
 - Поля компании, сайт, отрасль и адрес обрезаются до ограниченных длин до
   передачи дальше по цепочке. Телефон и контактные сведения не передаются
@@ -203,12 +211,27 @@ Outscraper, GigaChat и структуре Netlify Forms остаются ори
 | `YOUR_TELEGRAM_CREDENTIAL_ID` | раздел "в" | выбирается из выпадающего списка в ноде, не текстом |
 | `YOUR_RANDOM_WEBHOOK_PATH` | придумайте сами | нода Webhook в workflow-1 |
 | `YOUR_OUTSCRAPER_API_KEY` | раздел "е" | нода "Найти компании (Outscraper)" |
-| `YOUR_GIGACHAT_CREDENTIAL_ID` | у вас уже настроен credential "GigaChat" | выбирается из списка в ноде "GigaChat: оценить компанию" |
+| `YOUR_GIGACHAT_BASIC_CREDENTIAL_ID` | Client ID + Client Secret проекта GigaChat API | credential HTTP Basic Auth в ноде "Получить токен GigaChat" |
 | `YOUR_SHEET_URL` | ссылка на вашу таблицу | текст уведомлений в Telegram (необязательно, но удобно) |
 
 Для полей вида `YOUR_..._CREDENTIAL_ID` не нужно вписывать текст руками —
 откройте ноду, в поле Credential выберите (или создайте) нужный credential из
 выпадающего списка, n8n сам подставит правильный ID.
+
+**Создайте credential GigaChat API Basic**
+
+1. В n8n откройте Credentials → Create New → **HTTP Basic Auth**.
+2. В Username укажите Client ID проекта GigaChat API, в Password — Client
+   Secret. Сохраните под именем `GigaChat API Basic`.
+3. В ноде "Получить токен GigaChat" выберите этот credential. Не создавайте
+   credential типа HTTP Bearer Auth с готовым access token: он истекает через
+   30 минут.
+4. В ноде "Получить токен GigaChat" проверьте поле scope. По умолчанию стоит
+   `GIGACHAT_API_PERS`; для бизнес-проекта замените на значение, указанное
+   для вашего проекта (`GIGACHAT_API_B2B` или `GIGACHAT_API_CORP`).
+5. Запрос за новым токеном выполняется перед каждой новой компанией. Сам
+   access token передаётся далее в GigaChat node и может присутствовать в
+   execution data; ограничьте доступ к Executions, retention и экспортам.
 
 Важные детали по каждому workflow:
 
@@ -359,14 +382,12 @@ deployment. Не обновляйте production deployment до проверк�
    → Нужно новое развёртывание (Deploy → Manage deployments → Edit → New
    version), просто сохранить код в редакторе недостаточно.
 
-5. **GigaChat-нода падает с ошибкой сертификата (TLS/SSL)**
-   → GigaChat использует сертификат от Минцифры России, который не всегда
-   есть в стандартном наборе доверенных сертификатов сервера. Проверьте с
-   тем, кто настраивал credential "GigaChat" — возможно, на сервере n8n
-   (Amvera) нужно установить этот корневой сертификат, либо (менее
-   безопасный временный вариант) включить в ноде Options → "Ignore SSL
-   Issues" — я не стал включать это по умолчанию, так как это ослабляет
-   проверку подлинности сервера.
+5. **GigaChat OAuth/token или chat node падает с ошибкой сертификата (TLS/SSL)**
+   → На сервере n8n (Amvera) должна быть установлена доверенная цепочка
+   сертификатов УЦ Минцифры России, необходимая для обращения к GigaChat.
+   Проверьте CA bundle и сетевой доступ к `ngw.devices.sberbank.ru:9443`
+   и `api.giga.chat:443`. Не включайте "Ignore SSL Issues" и не отключайте
+   проверку TLS: это позволяет подменить endpoint и раскрыть credentials/token.
 
 Отдельно, не про поломку, а про путаницу: если кнопки "Одобрить"/"Отклонить"
 не реагируют — проверьте, что workflow-4 тоже активен (тумблер Active), а не
